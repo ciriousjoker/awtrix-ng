@@ -3,6 +3,8 @@
 
   bundle.py manifest BUNDLE_DIR --version V --commit C [--counter N] [--dirty]
                     [--compiler NAME=GCC]...      write BUNDLE_DIR/manifest.json
+                    [--compiler-record NAME=JSON]...  (a compiler of reused files, as another
+                                                  manifest names it: {"version", "sha256"})
   bundle.py verify BUNDLE_DIR                     check the files against it
   bundle.py release BUNDLE_DIR TARGET_DIR         write the installed release: manifest.json
                                                   and the listed files, without host-only files
@@ -423,6 +425,7 @@ def main(argv=None):
     make.add_argument("--counter", type=int)
     make.add_argument("--dirty", action="store_true")
     make.add_argument("--compiler", action="append", default=[], metavar="NAME=GCC")
+    make.add_argument("--compiler-record", action="append", default=[], metavar="NAME=JSON")
     check = commands.add_parser("verify")
     check.add_argument("bundle", type=Path)
     release = commands.add_parser("release")
@@ -452,6 +455,11 @@ def main(argv=None):
                 if not NAME.fullmatch(name) or not compiler or name in compilers:
                     raise BundleError(f"--compiler {option!r} is not NAME=GCC")
                 compilers[name] = compiler_identity(compiler)
+            for option in args.compiler_record:
+                name, _, record = option.partition("=")
+                if not NAME.fullmatch(name) or not record or name in compilers:
+                    raise BundleError(f"--compiler-record {option!r} is not NAME=JSON")
+                compilers[name] = json.loads(Path(record).read_text())
             manifest = write_manifest(args.bundle, args.version, args.commit, args.dirty,
                                       args.counter, compilers=compilers)
         elif args.command == "release":

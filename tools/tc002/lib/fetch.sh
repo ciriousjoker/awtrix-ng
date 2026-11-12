@@ -1,3 +1,7 @@
+# macOS before 14 has neither sha256sum nor nproc; the recipes use both.
+if ! command -v sha256sum >/dev/null 2>&1; then sha256sum() { shasum -a 256 "$@"; }; fi
+if ! command -v nproc >/dev/null 2>&1; then nproc() { getconf _NPROCESSORS_ONLN; }; fi
+
 # tc002_fetch FILE URL SHA256
 #
 # Prints the path of TC002_DL_DIR/FILE once its SHA-256 matches, downloading it from URL when it is

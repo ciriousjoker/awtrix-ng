@@ -57,8 +57,8 @@ export SOURCE_DATE_EPOCH=0 LC_ALL=C TZ=UTC
   cd "$SRC"
   CC="${CROSS}gcc" AR="${CROSS}ar" ARFLAGS=rD RANLIB="${CROSS}ranlib -D" CFLAGS="$CFLAGS_TC002" \
     CPPFLAGS="$LFS" perl ./Configure linux-armv4 --prefix=/usr --openssldir=/etc/ssl --libdir=lib "${OPTIONS[@]}"
-  make -j"$(nproc)" build_libs
-  make DESTDIR="$STAGE" install_dev
+  ${MAKE:-make} -j"$(nproc)" build_libs
+  ${MAKE:-make} DESTDIR="$STAGE" install_dev
 ) >"$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.log" >&2; exit 1; }
 
 mkdir -p "$OUT.partial/lib"
@@ -74,4 +74,5 @@ rm -rf "$OUT"
 mv "$OUT.partial" "$OUT"
 rm -rf "$SRC" "$STAGE"
 
-( cd "$OUT/lib" && stat -c '%n %s bytes' libcrypto.a libssl.a && sha256sum libcrypto.a libssl.a )
+( cd "$OUT/lib" && for lib in libcrypto.a libssl.a; do echo "$lib $(wc -c < "$lib" | tr -d ' ') bytes"; done &&
+  sha256sum libcrypto.a libssl.a )

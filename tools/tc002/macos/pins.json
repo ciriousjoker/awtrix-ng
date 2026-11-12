@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "toolchain": {
+    "description": "messense/homebrew-macos-cross-toolchains v15.2.0: GCC 15.2, binutils, musl 1.2.5 sysroot, built for aarch64-apple-darwin",
+    "url": "https://github.com/messense/homebrew-macos-cross-toolchains/releases/download/v15.2.0/armv7-unknown-linux-musleabihf-aarch64-darwin.tar.gz",
+    "file": "armv7-unknown-linux-musleabihf-aarch64-darwin.tar.gz",
+    "sha256": "295802a7c36c3cdd71fb08f921c70e02fbd10a6ab8c464dde56dbbf323e1827d",
+    "prefix": "armv7-unknown-linux-musleabihf/bin/armv7-linux-musleabihf-"
+  },
+  "base": {
+    "1.2.3": {
+      "repository": "Blueforcer/awtrix-ng",
+      "tag": "v1.2.3",
+      "commit": "bf0e70c14e1aa73a385f21c692f87e39358c142d",
+      "usb": {
+        "file": "usb-awtrix-ng-tc002.zip",
+        "sha256": "3dbb48f8c9f30859176e83881fc86c5f39ea07fde414d5ff02c209079897a58f"
+      },
+      "sources": {
+        "file": "tc002-sources.tar.gz",
+        "sha256": "1f48dee9dee501fceb8806850cac42b83f191cacff113abc6bc59f4538418195"
+      }
+    }
+  }
+}
