@@ -8,6 +8,7 @@ C++: the wake word engine bit for bit against its fixtures, the multi-model list
 store and its HTTP routes, and the assistant router. NAME picks some of them.
 """
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,17 @@ CONTRACT = ["src/platform/tc002/contract/" + name for name in ("MicrophoneClient
 LISTENER = [WAKE + "WakeListener.cpp", WAKE + "ModelFiles.cpp", *ENGINE, *CONTRACT,
             "src/core/api/JsonReader.cpp", "src/platform/posix/Files.cpp", "src/system/Log.cpp"]
 MODEL = "assets/tc002/wake/hey_awtrix.tflite"
+# The portable engine with Berry, as cmake/Core.cmake builds awtrix_core.
+CORE = sorted(str(p.relative_to(REPO)) for p in (REPO / "src/core").rglob("*.c*")) + [
+    "src/platform/linux/settings/Settings.cpp", "src/platform/linux/settings/Config.cpp",
+    "src/platform/linux/render/OutputGrade.cpp", "src/platform/linux/render/PageZoom.cpp",
+    "src/platform/linux/host/HostScriptHeap.cpp",
+    *sorted(str(p.relative_to(REPO)) for p in (REPO / "lib/berry").glob("*/*.c")
+            if p.parent.name in ("src", "default"))]
 FIXTURES = "tests/tc002/runtime/wake"
+# Third-party headers, outside -Werror as in the CMake build; the engine's defines.
+SYSTEM = ["-isystem", "src/platform/linux/host/vendor", "-isystem", "lib/berry/src", "-isystem", "lib/berry",
+          "-DAWTRIX_NATIVE", '-DAWTRIX_NG_VERSION="host"']
 SUITES = {
     "tc002-wake": (["tests/tc002/runtime/test_wake.cpp", *ENGINE, WAKE + "Endpointer.cpp",
                     "src/platform/posix/Files.cpp"],
@@ -32,6 +43,8 @@ SUITES = {
     "tc002-wake-models": (["tests/tc002/runtime/test_wake_models.cpp", WAKE + "WakeApi.cpp", WAKE + "WakeModelStore.cpp",
                            "src/platform/tc002/voice/HttpStream.cpp", *LISTENER, "src/platform/posix/Digest.cpp",
                            "src/platform/posix/sha256.c", "tools/tc002/macos/test_shims.cpp"], [MODEL]),
+    "tc002-wake-scripting": (["tests/tc002/runtime/test_wake_scripting.cpp", WAKE + "WakeScripting.cpp",
+                              "src/platform/linux/script/ExtensionHost.cpp", *CORE], []),
     "tc002-assistant-router": (["tests/tc002/runtime/test_assistant_router.cpp",
                                 "src/platform/tc002/voice/AssistantRouter.cpp",
                                 "src/platform/tc002/runtime/MicrophoneHub.cpp", *LISTENER], [MODEL]),
@@ -52,17 +65,29 @@ def main(argv=None):
     for name in args.names or SUITES:
         sources, arguments = SUITES[name]
         binary = out / name
+        # C sources and the engine are libraries here: built once, without -Werror, as CMake does.
         objects = []
-        for source in (s for s in sources if s.endswith(".c")):
-            obj = out / (Path(source).stem + ".o")
-            subprocess.run(["clang", "-O2", "-w", "-I", "src", "-c", source, "-o", str(obj)], cwd=REPO, check=True)
+        library = [s for s in sources if s.endswith(".c") or s in CORE]
+        jobs = []
+        for source in library:
+            obj = out / (source.replace("/", "_") + ".o")
             objects.append(str(obj))
+            if obj.exists() and obj.stat().st_mtime >= (REPO / source).stat().st_mtime:
+                continue
+            compiler = ["clang"] if source.endswith(".c") else ["clang++", "-std=c++17"]
+            jobs.append(subprocess.Popen([*compiler, "-O2", "-ffp-contract=off", "-w", *SYSTEM, "-I", "src",
+                                          "-I", "src/platform/linux/include", "-c", source, "-o", str(obj)], cwd=REPO))
+            if len(jobs) >= (os.cpu_count() or 4):
+                if jobs.pop(0).wait():
+                    failed.append(name)
+        if any(job.wait() for job in jobs):
+            failed.append(name)
         # The engine's float paths are exact only without fused multiply-adds, as on the clock.
         # -Wall -Wextra as the CMake build has them; -Werror as CI sets it.
         build = ["clang++", "-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror",
-                 "-Wno-unknown-warning-option", "-isystem", "src/platform/linux/host/vendor", "-I", "src", "-I", "tests",
+                 "-Wno-unknown-warning-option", *SYSTEM, "-I", "src", "-I", "tests",
                  "-I", "src/platform/linux/include", "-o", str(binary),
-                 *(s for s in sources if not s.endswith(".c")), *objects]
+                 *(s for s in sources if s not in library), *objects]
         print(f"build {name}", flush=True)
         if subprocess.run(build, cwd=REPO).returncode:
             failed.append(name)

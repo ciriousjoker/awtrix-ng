@@ -101,7 +101,7 @@ python3 tools/tc002/macos/host_tests.py
 ```
 
 They are the wake word engine against its fixtures, the wake word listener, the wake word models and
-their routes, and the assistant router.
+their routes, `on_wake` on the real script host, and the assistant router.
 
 ## A product's own build
 
