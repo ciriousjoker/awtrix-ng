@@ -48,6 +48,12 @@ std::optional<WakeEvent> WakeDetector::decide(uint8_t probability, uint64_t samp
   return WakeEvent{sample, window_.score()};
 }
 
+std::optional<WakeEvent> WakeDetector::push(const WakeFrontend::Frame& frame, uint64_t sample) {
+  uint8_t probability = 0;
+  if (!stream_.push(frame, probability)) return std::nullopt;
+  return decide(probability, sample);
+}
+
 std::optional<WakeEvent> WakeDetector::feed(const int16_t* samples, std::size_t count) {
   std::optional<WakeEvent> heard;
   uint8_t probability = 0;

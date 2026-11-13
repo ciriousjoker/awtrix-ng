@@ -34,8 +34,13 @@ class WakeDetector {
   void setSensitivity(WakeSensitivity level);
 
   std::optional<WakeEvent> feed(const int16_t* samples, std::size_t count);
+  // One frame of a shared frontend that has consumed `sample` samples since its reset.
+  std::optional<WakeEvent> push(const WakeFrontend::Frame& frame, uint64_t sample);
   std::optional<WakeEvent> decide(uint8_t probability, uint64_t sample);
   void reset();
+  // The mean of the window, 0..1, as the cutoff sees it.
+  float score() const { return window_.score(); }
+  std::size_t arenaBytes() const { return stream_.model() ? stream_.model()->arenaBytes() : 0; }
 
  private:
   void forgetDetections();

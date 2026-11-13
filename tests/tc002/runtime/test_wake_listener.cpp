@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/tc002/wake/WakeDetector.h"
 #include "platform/tc002/wake/WakeFrontend.h"
 #include "platform/tc002/wake/WakeListener.h"
 
@@ -446,6 +447,150 @@ void cancelAndWithdraw(const Fixture& f) {
   check(rig.last().operation == StreamControl::Stop, "and its late answer starts nothing");
 }
 
+std::vector<WakeHeard> pollBlocks(Rig& rig, int blocks, Listen listen = Listen::On) {
+  std::vector<WakeHeard> heard;
+  for (int i = 0; i < blocks; ++i) {
+    rig.now += kFrameMs;
+    rig.block();
+    rig.worker->run();
+    for (WakeHeard& h : rig.listener->poll(rig.now, listen)) heard.push_back(std::move(h));
+  }
+  return heard;
+}
+
+unsigned heardFrom(const std::vector<WakeHeard>& heard, const std::string& name) {
+  unsigned n = 0;
+  for (const WakeHeard& h : heard) n += h.name == name;
+  return n;
+}
+
+// A second model beside the bundled one: the copy of the shipped model that always fires.
+fs::path secondModel(const Fixture& f, const std::string& name) {
+  const fs::path model = f.dir / (name + ".tflite");
+  fs::copy_file(f.model, model, fs::copy_options::overwrite_existing);
+  writeFile(f.dir / (name + ".json"), R"({"probability_cutoff":0,"sliding_window_size":1})");
+  return model;
+}
+
+void severalModelsShareOneStream(const Fixture& f) {
+  Firing rig(f);
+  const fs::path second = secondModel(f, "second");
+  rig.listener->setModels({{"second", second.string(), WakeSensitivity::Normal, 1}});
+  rig.listen();
+  const auto heard = pollBlocks(rig, 110);
+  check(heardFrom(heard, "word") >= 2 && heardFrom(heard, "second") >= 2,
+        "both models are heard on the one stream: " + positions(heard));
+  check(rig.count(StreamControl::Probe) == 1, "one stream for both");
+  std::vector<tc002::wake::WakeScore> scores;
+  uint32_t at = 0;
+  check(rig.listener->scores(scores, at) && scores.size() == 2 && scores[0].name == "word" &&
+            scores[1].name == "second" && at == rig.position,
+        "the scores name each model at the latest position");
+  check(rig.listener->loaded("word") && rig.listener->loaded("second") && !rig.listener->loaded("third"),
+        "both detectors are in memory");
+}
+
+void aModelJoinsAndLeavesWithoutANewStream(const Fixture& f) {
+  Firing rig(f);
+  rig.listen();
+  pollBlocks(rig, 40);
+  const fs::path joined = secondModel(f, "joined");
+  rig.listener->setModels({{"joined", joined.string(), WakeSensitivity::Normal, 1}});
+  const auto with = pollBlocks(rig, 80);
+  check(heardFrom(with, "joined") >= 1 && rig.count(StreamControl::Probe) == 1,
+        "a model added while listening is heard on the same stream: " + positions(with));
+  rig.listener->setModels({});
+  pollBlocks(rig, 2);
+  const auto without = pollBlocks(rig, 60);
+  check(heardFrom(without, "joined") == 0 && heardFrom(without, "word") >= 1,
+        "a removed model is no longer heard, the others are");
+  rig.listener->setBundle(false, WakeSensitivity::Normal);
+  check(!rig.listener->hasModels(), "without the bundled model and others there is nothing to listen for");
+  rig.listener->poll(rig.now, Listen::On);
+  check(rig.last().operation == StreamControl::Stop, "and the stream stops");
+}
+
+void mutedDetectionsAreReported(const Fixture& f) {
+  Firing rig(f);
+  rig.listen();
+  pollBlocks(rig, 40);
+  const auto muted = pollBlocks(rig, 70, Listen::Muted);
+  bool allMuted = !muted.empty();
+  for (const WakeHeard& h : muted) allMuted = allMuted && h.muted;
+  check(allMuted, "poll reports detections heard while muted, flagged");
+  const auto resumed = pollBlocks(rig, 70);
+  bool someUnmuted = false;
+  for (const WakeHeard& h : resumed) someUnmuted = someUnmuted || !h.muted;
+  check(someUnmuted, "and unmuted ones after it");
+}
+
+void aBrokenModelLeavesTheOthers(const Fixture& f) {
+  Firing rig(f);
+  writeFile(f.dir / "broken.tflite", "not a model");
+  writeFile(f.dir / "broken.json", R"({"probability_cutoff":0.9,"sliding_window_size":3})");
+  rig.listener->setModels({{"broken", (f.dir / "broken.tflite").string(), WakeSensitivity::Normal, 1}});
+  rig.listen();
+  const auto heard = pollBlocks(rig, 70);
+  check(heardFrom(heard, "word") >= 1 && heardFrom(heard, "broken") == 0 && !rig.listener->loaded("broken"),
+        "a model the engine refuses is left out, the others listen");
+}
+
+// A detector fed frames of a frontend it shares computes what it computes on its own frontend.
+void aSharedFrontendChangesNothing(const Fixture& f) {
+  const std::string bytes = [&] {
+    std::ifstream in(f.model, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  }();
+  tc002::wake::WakeDetector own, shared;
+  std::string error;
+  require(own.load(bytes, error) && shared.load(bytes, error), "the model loads: " + error);
+  require(own.configure({0.5f, 3, 1000, 1000}, error) && shared.configure({0.5f, 3, 1000, 1000}, error), error);
+  tc002::wake::WakeFrontend frontend;
+  uint64_t position = 0;
+  uint32_t seed = 12345;
+  bool same = true;
+  std::vector<int16_t> block(tc002::kStreamBlockSamples);
+  for (int b = 0; b < 200 && same; ++b) {
+    for (int16_t& sample : block) {
+      seed = seed * 1103515245u + 12345u;
+      sample = static_cast<int16_t>(static_cast<int32_t>(seed >> 16) % 4000 - 2000);
+    }
+    const auto a = own.feed(block.data(), block.size());
+    std::optional<tc002::wake::WakeEvent> c;
+    const int16_t* samples = block.data();
+    std::size_t count = block.size();
+    tc002::wake::WakeFrontend::Frame frame;
+    for (;;) {
+      const std::size_t before = count;
+      const bool ready = frontend.next(samples, count, frame);
+      position += before - count;
+      if (!ready) break;
+      if (const auto event = shared.push(frame, position)) c = event;
+    }
+    same = own.score() == shared.score() && a.has_value() == c.has_value() && (!a || a->sample == c->sample);
+  }
+  check(same, "the shared frontend gives the same scores and detections");
+}
+
+void onlyOtherModels(const Fixture& f) {
+  const fs::path only = secondModel(f, "only");
+  auto executor = std::make_unique<test::ManualExecutor>();
+  test::ManualExecutor* worker = executor.get();
+  std::vector<StreamControl> sent;
+  auto listener = WakeListener::create([&sent](StreamControl control) {
+    sent.push_back(control);
+    return true;
+  }, std::move(executor));
+  check(!listener->hasModels() && listener->bundleName().empty(), "without a bundled model nothing is wanted");
+  listener->poll(1000, Listen::On);
+  check(sent.empty(), "and nothing listens");
+  listener->setModels({{"only", only.string(), WakeSensitivity::Normal, 1}});
+  listener->poll(1000, Listen::On);
+  check(sent.size() == 1 && sent.back().operation == StreamControl::Probe, "a stored model is enough to listen");
+  listener->cancel();
+  worker->run();
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -467,6 +612,12 @@ int main(int argc, char** argv) {
   failuresBackOff(fixture);
   anUnavailableStreamWaits(fixture);
   cancelAndWithdraw(fixture);
+  severalModelsShareOneStream(fixture);
+  aModelJoinsAndLeavesWithoutANewStream(fixture);
+  mutedDetectionsAreReported(fixture);
+  aBrokenModelLeavesTheOthers(fixture);
+  onlyOtherModels(fixture);
+  aSharedFrontendChangesNothing(fixture);
   theShippedWakeWordOpens(argv[1]);
   return awtrix::test::finish("wake listener");
 }

@@ -24,6 +24,7 @@ class WakeModel {
   ~WakeModel();
 
   std::size_t frames() const { return frames_; }
+  std::size_t arenaBytes() const { return arena_.size(); }
   float inputScale() const { return inputScale_; }
   int32_t inputZeroPoint() const { return inputZeroPoint_; }
   int8_t* input() { return input_; }

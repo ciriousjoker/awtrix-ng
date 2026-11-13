@@ -17,6 +17,9 @@ class ModelStream {
   bool load(std::string_view bytes, std::string& error);
   bool load(std::shared_ptr<const posix::MappedFile> file, std::string& error);
   bool next(const int16_t*& samples, std::size_t& count, uint8_t& probability);
+  // One frame of a frontend another owner runs, so several models share it: true with the
+  // model's output once its input holds a full window of frames.
+  bool push(const WakeFrontend::Frame& frame, uint8_t& probability);
   uint64_t position() const { return position_; }
   void reset();
   const WakeModel* model() const { return model_.get(); }

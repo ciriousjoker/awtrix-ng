@@ -35,13 +35,18 @@ bool ModelStream::next(const int16_t*& samples, std::size_t& count, uint8_t& pro
     const bool ready = frontend_.next(samples, count, frame);
     position_ += before - count;
     if (!ready) return false;
-    int8_t* row = model_->input() + frame_ * WakeModel::kFeatures;
-    for (std::size_t i = 0; i < WakeModel::kFeatures; ++i) row[i] = quantized_[trainerFeature(frame[i])];
-    if (++frame_ < model_->frames()) continue;
-    frame_ = 0;
-    probability = model_->invoke();
-    return true;
+    if (push(frame, probability)) return true;
   }
+}
+
+bool ModelStream::push(const WakeFrontend::Frame& frame, uint8_t& probability) {
+  if (!model_) return false;
+  int8_t* row = model_->input() + frame_ * WakeModel::kFeatures;
+  for (std::size_t i = 0; i < WakeModel::kFeatures; ++i) row[i] = quantized_[trainerFeature(frame[i])];
+  if (++frame_ < model_->frames()) return false;
+  frame_ = 0;
+  probability = model_->invoke();
+  return true;
 }
 
 void ModelStream::reset() {
