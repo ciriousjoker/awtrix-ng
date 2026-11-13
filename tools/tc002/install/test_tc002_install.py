@@ -1604,9 +1604,12 @@ class HelperFunctionTest(unittest.TestCase):
         with self.assertRaisesRegex(installer.InstallError, "no update counter"):
             installer.bundle_counter({"release": "x"})
         self.assertEqual(installer.bundle_counter({"release": "1.2-g1-abc", "counter": 7}), 7)
+        # The device's release name rule: a product's version with + is a release like any other.
+        self.assertEqual(installer.bundle_counter({"release": "1.2+local-v1-g1-abc", "counter": 7}), 7)
         for manifest in ({"release": "x", "counter": 0}, {"release": "x", "counter": True},
                          {"release": "x", "counter": 1 << 63}, {"release": "x", "counter": "7"},
-                         {"release": "1.2+local-abc", "counter": 7},
+                         {"release": "1.2:local-abc", "counter": 7}, {"release": "+1.2", "counter": 7},
+                         {"release": "1.2.partial", "counter": 7},
                          {"release": "x" * 65, "counter": 7}):
             with self.assertRaises(installer.InstallError, msg=manifest):
                 installer.bundle_counter(manifest)

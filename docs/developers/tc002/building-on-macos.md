@@ -20,8 +20,8 @@ reference: it builds every part from source, the Mac build reuses the parts that
 | `libawtrix-loader.so`, `loop.ko`, `aic8800_bsp.ko`, `aic8800_fdrv.ko`, `awtrix_pcm.ko` | reused: they need the glibc toolchain or the kernel tree |
 | `udhcpc` (BusyBox), `wpa_supplicant`, `ca-certificates.crt`, `licenses.txt.gz` | reused: they never change here |
 
-The reused files come from the official release of the base version: the version file without
-its `-sc.N`. The script downloads that release's `usb-awtrix-ng-tc002.zip`, checks it against the
+The reused files come from the official release of the version in the version file. The script
+downloads that release's `usb-awtrix-ng-tc002.zip`, checks it against the
 SHA-256 pinned in `tools/tc002/macos/pins.json`, unpacks its release image and checks every file
 against the release's manifest. It stops when the commit changed what a reused file is made of: the
 recipes, the loader, the kernel modules or the licence texts. Such a release needs the Linux build.
@@ -69,6 +69,9 @@ tools/tc002/macos/build.sh OUT
 | `--incremental` | with `--working-tree`: keep the build directory, for quick rebuilds |
 | `--jobs N` | parallel jobs (default: all cores) |
 | `--no-usb` | build neither the source archive nor the USB package |
+| `--version VERSION` | the version the clock reports instead of the version file, for example `1.2.3+product-v1.0.0` ([A product's own build](#a-products-own-build)) |
+| `--no-update-check` | the web UI offers no update check |
+| `--update-api URL`, `--update-ota URL` | the release feed and OTA index of the web UI's update check |
 | `--tag TAG`, `--repository OWNER/NAME` | the release the USB package names for its sources (default `v<version>` of `origin`) |
 
 `OUT` receives `bundle/`, `awtrix-ng-tc002.awup`, `tc002-sources.tar.gz` and
@@ -100,16 +103,32 @@ python3 tools/tc002/macos/host_tests.py
 They are the wake word engine against its fixtures, the wake word listener, the wake word models and
 their routes, and the assistant router.
 
+## A product's own build
+
+A product that ships AWTRIX NG under its own name builds the same release with its own version
+and, when it updates its clocks itself, without the web UI's update check:
+
+```sh
+tools/tc002/macos/build.sh OUT --version 1.2.3+product-v1.0.0 --no-update-check
+```
+
+The clock reports the version as it is given (`/api/v1/version`, the daemon's `hello`, the boot
+screen). The bundle and the update package name `VERSION-g<commit>`, and the release name adds a
+digest; `+` is one of the characters a release name may hold. Updates compare their counter, the
+commit time, never the version. The Linux build takes the same choices from the environment:
+`AWTRIX_VERSION` and `AWTRIX_WEBUI_UPDATE_CHECK=OFF` for `build_bundle.sh`, and the CMake cache
+variables `AWTRIX_VERSION_OVERRIDE`, `AWTRIX_WEBUI_UPDATE_CHECK`, `AWTRIX_WEBUI_UPDATE_API` and
+`AWTRIX_WEBUI_UPDATE_OTA` for any build of the `tc002` preset.
+
 ## A new base version
 
-When the fork takes a new upstream release, `pins.json` needs that release:
+When the version file names a new upstream release, `pins.json` needs that release:
 
 ```sh
 python3 tools/tc002/macos/pin_base.py vX.Y.Z
 ```
 
 It records the commit of the tag and the SHA-256 GitHub reports for its USB package and sources.
-The fork's upstream sync does this itself.
 
 ## Related
 

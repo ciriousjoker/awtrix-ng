@@ -27,7 +27,9 @@
 # against their pinned SHA-256 (tools/tc002/toolchain/env.sh).
 # The sources, recipes and licence texts all come from one commit (--commit, default HEAD),
 # exported with git archive into WORK/src (default $TC002_CACHE/bundle), so nothing
-# outside the commit can enter the release; the version is version-g<commit> and the manifest
+# outside the commit can enter the release; the version is version-g<commit> (AWTRIX_VERSION in the
+# environment replaces the version file's, AWTRIX_WEBUI_UPDATE_CHECK=OFF drops the web UI's update
+# check) and the manifest
 # counter the commit time. --working-tree builds the checkout as it is instead, for trying a
 # change on a clock: the version then ends in -dirty whenever anything differs from HEAD,
 # untracked files included, or git cannot read the checkout (then SOURCE_DATE_EPOCH gives the
@@ -106,7 +108,8 @@ else
   COUNTER=$(git -C "$REPO" log -1 --format=%ct "$REV")
   git -C "$REPO" -c core.autocrlf=false archive --format=tar "$REV" | tar -x -C "$SRC"
 fi
-VERSION="$(tr -d '[:space:]' < "$SRC/version")-g$COMMIT${DIRTY:+-dirty}"
+# AWTRIX_VERSION names a product's own version, which the programs report instead of the version file.
+VERSION="${AWTRIX_VERSION:-$(tr -d '[:space:]' < "$SRC/version")}-g$COMMIT${DIRTY:+-dirty}"
 echo "building $VERSION (counter $COUNTER)"
 
 # Check the MCU extension against this source snapshot's pin before the lengthy Linux build. It
@@ -134,7 +137,8 @@ tar -xzOf "$BASE64_TARBALL" "base64_arduino-$BASE64_COMMIT/src/base64.hpp" > "$D
 BUILD=$WORK/build-arm
 rm -rf "$BUILD"
 (cd "$SRC" && cmake --preset tc002 -B "$BUILD" -DBUILD_TESTING=OFF -DAWTRIX_DEPS="$DEPS" \
-  -DAWTRIX_RELEASE_VERSION="$VERSION" -DOPENSSL_INCLUDE_DIR="$OPENSSL_OUT/include" \
+  -DAWTRIX_RELEASE_VERSION="$VERSION" -DAWTRIX_VERSION_OVERRIDE="${AWTRIX_VERSION:-}" \
+  -DAWTRIX_WEBUI_UPDATE_CHECK="${AWTRIX_WEBUI_UPDATE_CHECK:-ON}" -DOPENSSL_INCLUDE_DIR="$OPENSSL_OUT/include" \
   -DOPENSSL_CRYPTO_LIBRARY="$OPENSSL_OUT/lib/libcrypto.a" -DOPENSSL_SSL_LIBRARY="$OPENSSL_OUT/lib/libssl.a" \
   -DLIBLZMA_INCLUDE_DIR="$LZMA_OUT/include" -DLIBLZMA_LIBRARY="$LZMA_OUT/lib/liblzma.a" \
   -DJPEG_INCLUDE_DIR="$JPEG_OUT/include" -DJPEG_LIBRARY="$JPEG_OUT/lib/libjpeg.a") >/dev/null

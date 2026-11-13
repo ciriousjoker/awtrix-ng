@@ -31,6 +31,11 @@ if(NOT EXISTS "${AWTRIX_DEPS}/base64/src/base64.hpp")
 endif()
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version" AWTRIX_VERSION)
 string(STRIP "${AWTRIX_VERSION}" AWTRIX_VERSION)
+# A build of a product on top of AWTRIX NG reports its own version, for example 1.2.3+product-v1.0.0.
+set(AWTRIX_VERSION_OVERRIDE "" CACHE STRING "Version the programs report instead of the version file")
+if(AWTRIX_VERSION_OVERRIDE)
+  set(AWTRIX_VERSION "${AWTRIX_VERSION_OVERRIDE}")
+endif()
 
 include(cmake/Warnings.cmake)
 include(cmake/Sanitizers.cmake)

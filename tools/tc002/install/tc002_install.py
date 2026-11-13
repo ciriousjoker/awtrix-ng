@@ -121,7 +121,6 @@ STOP_WAIT = 30
 # USB ADB drops for about a second right after the release starts.
 ADB_RESTART_SECONDS = 10
 TMP_RESERVE = 2 << 20
-STATE_IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]{1,64}")
 EXECUTABLE = re.compile(r" -> (/\S+)")
 AWTRIX_EXECUTABLES = (RELEASE_MOUNT + "/", LEGACY_RELEASES + "/", LEGACY_FACTORY + "/")
 PACKAGE_TOOL = HERE.parents[1] / "update" / "package.py"
@@ -214,9 +213,10 @@ def bundle_counter(manifest):
     if not isinstance(counter, int) or isinstance(counter, bool) or \
             not 0 < counter <= bundle_format.MAX_COUNTER:
         raise InstallError("the bundle manifest's counter is not a positive 63-bit integer")
-    if not STATE_IDENTIFIER.fullmatch(manifest["release"]):
+    # The device's rule for release names (release_name.h), the same the update state records.
+    if not bundle_format.valid_release_name(manifest["release"]):
         raise InstallError(f"release name {manifest['release']!r} cannot be recorded as an update "
-                           "(at most 64 of A-Z a-z 0-9 . _ : -)")
+                           "(at most 64 of A-Z a-z 0-9 . _ + -, starting with a letter or digit)")
     return counter
 
 

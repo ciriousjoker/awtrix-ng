@@ -2,6 +2,7 @@
 """Builds the TC002 release natively on an Apple Silicon Mac: no Docker, no VM, no Rosetta.
 
   tools/tc002/macos/build.py OUTPUT_DIR [--commit REV | --working-tree] [--jobs N]
+                             [--version VERSION] [--no-update-check | --update-api URL --update-ota URL]
                              [--repository OWNER/NAME] [--tag TAG] [--no-usb]
 
 OUTPUT_DIR receives bundle/ (as build_bundle.sh writes it), awtrix-ng-tc002.awup and, unless
@@ -370,7 +371,7 @@ def build_libraries(src, work, env, jobs):
     return outputs
 
 
-def build_programs(src, work, env, jobs, version, libs, deps, incremental=False):
+def build_programs(src, work, env, jobs, version, libs, deps, incremental=False, options=()):
     build = work / "build-arm"
     if not incremental:
         shutil.rmtree(build, ignore_errors=True)
@@ -380,7 +381,7 @@ def build_programs(src, work, env, jobs, version, libs, deps, incremental=False)
          f"-DAWTRIX_RELEASE_VERSION={version}", f"-DOPENSSL_INCLUDE_DIR={openssl}/include",
          f"-DOPENSSL_CRYPTO_LIBRARY={openssl}/lib/libcrypto.a", f"-DOPENSSL_SSL_LIBRARY={openssl}/lib/libssl.a",
          f"-DLIBLZMA_INCLUDE_DIR={lzma}/include", f"-DLIBLZMA_LIBRARY={lzma}/lib/liblzma.a",
-         f"-DJPEG_INCLUDE_DIR={jpeg}/include", f"-DJPEG_LIBRARY={jpeg}/lib/libjpeg.a"],
+         f"-DJPEG_INCLUDE_DIR={jpeg}/include", f"-DJPEG_LIBRARY={jpeg}/lib/libjpeg.a", *options],
         cwd=src, env=env, log_file=work / "cmake.log")
     log(f"build the programs with {jobs} jobs")
     run(["cmake", "--build", str(build), "--parallel", str(jobs)], env=env, log_file=work / "cmake.log")
@@ -506,6 +507,12 @@ def main(argv=None):
     parser.add_argument("--no-usb", action="store_true", help="build no source archive and no USB package")
     parser.add_argument("--incremental", action="store_true",
                         help="with --working-tree: keep the build directory between runs (development only)")
+    parser.add_argument("--version", default=os.environ.get("AWTRIX_VERSION", ""),
+                        help="the version the clock reports instead of the version file, for example "
+                             "1.2.3+product-v1.0.0 (default: AWTRIX_VERSION)")
+    parser.add_argument("--no-update-check", action="store_true", help="the web UI offers no update check")
+    parser.add_argument("--update-api", help="release feed of the web UI's update check")
+    parser.add_argument("--update-ota", help="OTA index of the web UI's update check")
     args = parser.parse_args(argv)
     if args.working_tree and args.commit != "HEAD":
         parser.error("--commit and --working-tree exclude each other")
@@ -528,9 +535,18 @@ def main(argv=None):
 
         src, commit, counter, dirty = export_source(work, args.commit, args.working_tree, args.incremental)
         commit_full = run(["git", "-C", str(REPO), "rev-parse", f"{args.commit}^{{commit}}"], quiet=True).strip()
-        file_version = (src / "version").read_text().strip()
-        version = f"{file_version}-g{commit}{'-dirty' if dirty else ''}"
-        base_version = re.sub(r"-sc\.\d+$", "", file_version)
+        base_version = (src / "version").read_text().strip()
+        reported = args.version.strip() or base_version
+        version = f"{reported}-g{commit}{'-dirty' if dirty else ''}"
+        options = []
+        if args.version.strip():
+            options.append(f"-DAWTRIX_VERSION_OVERRIDE={reported}")
+        if args.no_update_check:
+            options.append("-DAWTRIX_WEBUI_UPDATE_CHECK=OFF")
+        if args.update_api:
+            options.append(f"-DAWTRIX_WEBUI_UPDATE_API={args.update_api}")
+        if args.update_ota:
+            options.append(f"-DAWTRIX_WEBUI_UPDATE_OTA={args.update_ota}")
         log(f"building {version} (counter {counter}) on base {base_version}")
 
         prefix, real = musl_toolchain(cache, dl_dir, src, args.jobs)
@@ -556,7 +572,7 @@ def main(argv=None):
             data = archive.extractfile(f"base64_arduino-{b64}/src/base64.hpp").read()
         (deps / "base64/src/base64.hpp").write_bytes(data)
 
-        build = build_programs(src, work, env, args.jobs, version, libs, deps, args.incremental)
+        build = build_programs(src, work, env, args.jobs, version, libs, deps, args.incremental, options)
         bundle = output / "bundle"
         assemble(src, work, build, bundle, base_root, base_manifest, env)
         check_binaries(bundle, prefix)
@@ -572,7 +588,7 @@ def main(argv=None):
              "--out", str(awup), *(["--allow-dirty"] if dirty else [])], env=env)
         if not args.no_usb:
             repository = args.repository or os.environ.get("GITHUB_REPOSITORY") or origin_repository()
-            tag = args.tag or f"v{file_version}"
+            tag = args.tag or f"v{reported}"
             sources = output / "tc002-sources.tar.gz"
             sources.unlink(missing_ok=True)
             log("write tc002-sources.tar.gz")

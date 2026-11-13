@@ -22,7 +22,11 @@ FALLBACK = "0.0.0-dev"
 
 
 def read_version(root):
-    """The trimmed contents of `<root>/version`, or None if missing/empty."""
+    """AWTRIX_VERSION from the environment (a product's own version on top of AWTRIX NG), else the
+    trimmed contents of `<root>/version`, or None if missing/empty."""
+    override = os.environ.get("AWTRIX_VERSION", "").strip()
+    if override:
+        return override
     try:
         with open(os.path.join(root, "version"), encoding="utf-8") as f:
             return f.read().strip() or None

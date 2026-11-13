@@ -8,6 +8,8 @@ namespace {
 
 // A two-column '1'.
 constexpr uint8_t kNarrowOne[kGlyphH] = {0b001, 0b011, 0b001, 0b001, 0b001};
+// '+' for versions such as 1.2.3+product-v1.0.0; the loader's copy of the font never draws one.
+constexpr uint8_t kPlus[kGlyphH] = {0b000, 0b010, 0b111, 0b010, 0b000};
 
 struct Shape {
   const uint8_t* rows = nullptr;
@@ -32,7 +34,7 @@ Shape proportional(char ch) {
 
 }
 
-const uint8_t* glyphRows(char ch) { return tc002_glyph_rows(ch); }
+const uint8_t* glyphRows(char ch) { return ch == '+' ? kPlus : tc002_glyph_rows(ch); }
 
 void drawCell(Canvas& c, int x, int y, char ch, uint32_t rgb) {
   const uint8_t* rows = glyphRows(ch);
