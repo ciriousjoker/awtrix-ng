@@ -117,28 +117,16 @@ async function testOfflineSkipsTheCheck() {
   ctx.window.close();
 }
 
-async function testForkVersionsSort(){
-  for(const [tag,running,newer] of [['v1.1.1-sc.1','1.1.1',true],['v1.1.1-sc.2','1.1.1-sc.1',true],
-    ['v1.1.1-sc.10','1.1.1-sc.9',true],['v1.1.1-sc.1','1.1.1-sc.1',false],['v1.1.2','1.1.1-sc.9',true],
-    ['v1.1.1','1.1.1-sc.1',false],['v1.1.1-sc.3','1.1.2',false]]){
-    const {window}=await openSystem({latest:release(tag),device:{version:running}});
-    const offered=install(window).textContent==='Download & install';
-    assert(offered===newer,`${tag} over ${running} is ${newer?'':'not '}offered`);
-    window.close();
-  }
-}
-
 async function firmwareCase(change={},xhrStatus=200){
   const imageName=change.tc002?'awtrix-ng-tc002.awup':'firmware-awtrix-ng.bin';
-  const tag=change.tag||'v1.1.2';
-  const latest=release(tag);
-  if(change.tc002)latest.assets.push({name:imageName,browser_download_url:'https://github.com/ciriousjoker/awtrix-ng/releases/download/'+tag+'/'+imageName});
+  const latest=release('v1.1.2');
+  if(change.tc002)latest.assets.push({name:imageName,browser_download_url:'https://github.com/Blueforcer/awtrix-ng/releases/download/v1.1.2/'+imageName});
   const ctx=await openSystem({latest,device:{updateImage:imageName}});
   const bytes=new Uint8Array(512);bytes[0]=0xe9;bytes[100]=42;
   if(change.tc002)bytes.set(Buffer.from(change.magic||'AWUPD003'));
   const image=ctx.store.device.updateImage;
   const asset={size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
-  const manifest={version:tag,assets:{[image]:asset}};
+  const manifest={version:'v1.1.2',assets:{[image]:asset}};
   if(change.version)manifest.version=change.version;
   if(change.hash)asset.sha256='0'.repeat(64);
   if(change.size)asset.size=change.size;
@@ -192,14 +180,6 @@ async function testTc002FirmwareInstall(){
   }
 }
 
-async function testForkReleaseInstalls(){
-  const ctx=await firmwareCase({tc002:true,tag:'v1.1.1-sc.2'});
-  assert(ctx.fetched[0].url.startsWith('https://ciriousjoker.github.io/awtrix-ng/firmware/ota/'),'the fork publishes its own OTA index');
-  assert(ctx.fetched[1].url.endsWith('/v1.1.1-sc.2/awtrix-ng-tc002.awup'),'a fork release downloads from its own tag');
-  assert(ctx.uploads.length===1,'and installs');
-  ctx.window.close();
-}
-
 async function testBadFirmwareNeverUploads(){
   for(const change of [{version:'v1.1.1'},{hash:true},{size:511},{truncated:true},{network:true}]){
     const ctx=await firmwareCase(change);
@@ -227,12 +207,38 @@ async function testNoAutomaticCheckAfterNavigation(){
   ctx.window.close();
 }
 
+// A build may name another release feed and OTA index, or none (bundle.py webui).
+async function testTheUpdateSourceIsTheBuildsChoice(){
+  const fs=require('node:fs'),path=require('node:path');
+  const page=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8')
+    .replace(/('use strict';\r?\n)\(\(\)=>\{\r?\n/,'$1').replace(/\r?\n\}\)\(\);(\r?\n<\/script>)/,'$1');
+  assert(/data-update-api="https:\/\/api\.github\.com\/repos\/Blueforcer\/awtrix-ng\/releases\/latest"/.test(page),
+    'the release feed is upstream\'s unless a build names another');
+  const other=page.replace(/data-update-api="[^"]*"/,'data-update-api="https://api.github.com/repos/someone/fork/releases/latest"')
+    .replace(/data-update-ota="[^"]*"/,'data-update-ota="https://someone.github.io/fork/firmware/ota/"');
+  const ctx=await boot({html:other});ctx.window.localStorage.clear();
+  ctx.store.githubLatest=release('v1.1.2');
+  await goto(ctx.window,'#/system');await flush(60);
+  ctx.window.document.querySelector('button[aria-label="Check for updates"]').click();await flush(60);
+  assert(ctx.netlog.some(l=>l.includes('api.github.com/repos/someone/fork/releases/latest')),'the check asks the feed the build names');
+  ctx.window.close();
+  const off=await boot({html:page.replace(/data-update-api="[^"]*"/,'data-update-api=""')});
+  off.window.localStorage.setItem('awtrixUpdate',JSON.stringify({at:Date.now(),version:'9.9.9',usable:true,assets:{}}));
+  await goto(off.window,'#/system');await flush(60);
+  assert(!off.window.document.querySelector('button[aria-label="Check for updates"]')&&!install(off.window),
+    'without a feed the page offers no update check');
+  assert(status(off.window)?.textContent==='Version 1.1.1','and names the running version');
+  await goto(off.window,'#/');await flush(60);
+  assert(!/9\.9\.9/.test(off.window.document.querySelector('.meta')?.textContent||''),'nor does the dashboard offer an update');
+  assert(githubCalls(off.netlog)===0,'and nothing asks GitHub');
+  off.window.close();
+}
+
 async function main() {
   await testNoAutomaticCheckAfterNavigation();
+  await testTheUpdateSourceIsTheBuildsChoice();
   await testBrowserFirmwareInstall();
   await testTc002FirmwareInstall();
-  await testForkReleaseInstalls();
-  await testForkVersionsSort();
   await testBadFirmwareNeverUploads();
   await testRejectedFirmwareAllowsRetry();
   await testNewerReleaseOffersTheMatchingFile();

@@ -12,8 +12,11 @@
                                                   the squashfs of that release, which the TC002
                                                   mounts from its release slot in res and update
                                                   packages carry, and list it in manifest.json
-  bundle.py webui REPO OUTPUT                     write share/index.html.gz: the minified, gzipped
-                                                  web UI with its Linux-only parts, from WebUiAsset.h
+  bundle.py webui REPO OUTPUT [--update-api URL] [--update-ota URL]
+                                                  write share/index.html.gz: the minified, gzipped
+                                                  web UI with its Linux-only parts, from WebUiAsset.h;
+                                                  the options name another release feed and OTA
+                                                  index for its update check, an empty feed none
 
 A bundle is bin/, share/ and lib/ plus manifest.json and release.img. "files" lists the installed
 release with path, size, SHA-256 and mode. "hostOnly" lists the files the installer puts into res
@@ -403,6 +406,28 @@ def embedded_webui(repo):
     return data
 
 
+UPDATE_ATTRIBUTES = {"api": "data-update-api", "ota": "data-update-ota"}
+
+
+def with_update_source(data, api=None, ota=None):
+    """The gzipped web UI with other values of its root element's update attributes: api is the
+    release feed the update check asks (an empty one turns the check off), ota the OTA index."""
+    if api is None and ota is None:
+        return data
+    import gzip
+    html = gzip.decompress(data).decode("utf-8")
+    for key, value in (("api", api), ("ota", ota)):
+        if value is None:
+            continue
+        if any(c in value for c in "\"<>&") or not value.isprintable():
+            raise BundleError(f"--update-{key} {value!r} cannot stand in an HTML attribute")
+        pattern = re.compile(UPDATE_ATTRIBUTES[key] + r'="[^"]*"')
+        html, found = pattern.subn(f'{UPDATE_ATTRIBUTES[key]}="{value}"', html)
+        if found != 1:
+            raise BundleError(f"the web UI has {found} {UPDATE_ATTRIBUTES[key]} attributes, not one")
+    return gzip.compress(html.encode("utf-8"), compresslevel=9, mtime=0)
+
+
 def summary(manifest):
     files = manifest["files"]
     host = manifest.get("hostOnly", [])
@@ -436,10 +461,12 @@ def main(argv=None):
     webui = commands.add_parser("webui")
     webui.add_argument("repo", type=Path)
     webui.add_argument("output", type=Path)
+    webui.add_argument("--update-api", help="release feed of the update check; empty: no check")
+    webui.add_argument("--update-ota", help="OTA index the update check downloads from")
     args = parser.parse_args(argv)
     try:
         if args.command == "webui":
-            data = embedded_webui(args.repo)
+            data = with_update_source(embedded_webui(args.repo), args.update_api, args.update_ota)
             args.output.write_bytes(data)
             print(f"{args.output}: {len(data)} bytes")
             return 0

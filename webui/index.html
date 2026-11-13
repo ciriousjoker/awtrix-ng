@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-update-api="https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest" data-update-ota="https://blueforcer.github.io/awtrix-ng/firmware/ota/">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -4641,25 +4641,21 @@ function progressRow(){
     hide(){row.style.display='none';},
     set(p){fill.style.width=(p*100).toFixed(1)+'%';}};
 }
-// Smart Clock fork: its releases and the OTA index its release workflow publishes to GitHub Pages.
-const UPDATE_REPO=['ciriousjoker','awtrix-ng'];
-const RELEASES_API='https://api.github.com/repos/'+UPDATE_REPO.join('/')+'/releases/latest';
-const OTA_BASE='https://'+UPDATE_REPO[0]+'.github.io/'+UPDATE_REPO[1]+'/firmware/ota/';
+// The release feed and the OTA index are attributes of the root element, so a build can name
+// other ones (bundle.py webui --update-api/--update-ota). Without a feed there is no update check.
+const RELEASES_API=document.documentElement.dataset.updateApi||'';
+const OTA_BASE=document.documentElement.dataset.updateOta||'';
 let firmwareBusy=false;
 const UPD_KEY='awtrixUpdate';
 const UPD_TTL_MS=6*3600*1000;
-// X.Y.Z, or X.Y.Z-sc.N of the fork: N counts its releases on top of upstream X.Y.Z, so it sorts
-// after X.Y.Z and before the next upstream version.
-const verParts=v=>{
-  const m=/^v?(\d+)\.(\d+)\.(\d+)(?:-sc\.(\d+))?/.exec(String(v||''));
-  return m?m.slice(1).map(n=>parseInt(n||'0',10)):[0,0,0,0];
-};
+const verParts=v=>String(v||'').replace(/^v/,'').split('.').map(n=>parseInt(n,10)||0);
 function verNewer(a,b){
   const x=verParts(a),y=verParts(b);
-  for(let i=0;i<4;i++)if(x[i]!==y[i])return x[i]>y[i];
+  for(let i=0;i<3;i++)if((x[i]||0)!==(y[i]||0))return(x[i]||0)>(y[i]||0);
   return false;
 }
 function updCached(){
+  if(!RELEASES_API)return null;
   try{const c=JSON.parse(localStorage.getItem(UPD_KEY)||'null');if(c&&Date.now()-c.at<UPD_TTL_MS)return c;}catch(e){}
   return null;
 }
@@ -4688,7 +4684,7 @@ async function downloadFirmware(release,onProgress){
   if(!response.ok)throw new Error(t('updnotready'));
   const manifest=await response.json();
   const asset=manifest.assets&&manifest.assets[image];
-  if(manifest.version!=='v'+release.version||!/^v\d+\.\d+\.\d+(-sc\.\d+)?$/.test(manifest.version)||!asset)throw new Error(t('updnotready'));
+  if(manifest.version!=='v'+release.version||!/^v\d+\.\d+\.\d+$/.test(manifest.version)||!asset)throw new Error(t('updnotready'));
   if(!Number.isSafeInteger(asset.size)||asset.size<256||asset.size>(awup?8:16)*1024*1024||!/^[a-f0-9]{64}$/.test(asset.sha256))throw new Error(t('updbadfile'));
   const r=await fetch(OTA_BASE+manifest.version+'/'+image,options);
   if(!r.ok)throw new Error('HTTP '+r.status);
@@ -4706,6 +4702,11 @@ async function downloadFirmware(release,onProgress){
   return new File([bytes],image,{type:'application/octet-stream'});
 }
 function updateRow(install){
+  if(!RELEASES_API){
+    const row=actionRow(t('update'),null,[]);
+    row.firstChild.append(el('div',{id:'upd-status',class:'help'},t('version')+' '+((S.stats&&S.stats.version)||'')));
+    return row;
+  }
   let available=null;
   const installBtn=armable(el('button',{id:'upd-install','aria-label':t('updchk')},t('updchk')),()=>{
     if(available)install(available);else show(true);

@@ -122,6 +122,24 @@ class BundleTest(unittest.TestCase):
         with self.assertRaisesRegex(bundle.BundleError, "no AWTRIX_WEBUI_FULL stream"):
             bundle.embedded_webui(fake)
 
+    def test_a_build_names_the_update_source_of_the_web_ui(self):
+        import gzip
+        page = ('<html lang="en" data-update-api="https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest" '
+                'data-update-ota="https://blueforcer.github.io/awtrix-ng/firmware/ota/"><body></body></html>')
+        data = gzip.compress(page.encode(), mtime=0)
+        self.assertEqual(bundle.with_update_source(data), data, "without options the web UI stays as it is")
+        off = gzip.decompress(bundle.with_update_source(data, api="")).decode()
+        self.assertIn('data-update-api=""', off)
+        self.assertIn('data-update-ota="https://blueforcer.github.io/awtrix-ng/firmware/ota/"', off)
+        other = gzip.decompress(bundle.with_update_source(
+            data, api="https://api.github.com/repos/a/b/releases/latest", ota="https://a.github.io/b/")).decode()
+        self.assertIn('data-update-api="https://api.github.com/repos/a/b/releases/latest"', other)
+        self.assertIn('data-update-ota="https://a.github.io/b/"', other)
+        with self.assertRaises(bundle.BundleError):
+            bundle.with_update_source(data, api='x" onload="alert(1)')
+        with self.assertRaises(bundle.BundleError):
+            bundle.with_update_source(gzip.compress(b"<html></html>"), api="")
+
     def test_release_names_follow_the_device_rule(self):
         for good in ("1", "1.1.2-ge36eeadbd11b-e4d2371b18d2", "a+b_c.d-e", "x" * 64):
             self.assertTrue(bundle.valid_release_name(good), good)
