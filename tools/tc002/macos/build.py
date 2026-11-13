@@ -335,10 +335,11 @@ def clean_environment():
 
 # --- build --------------------------------------------------------------------------------------
 
-def export_source(work, rev, working_tree):
+def export_source(work, rev, working_tree, incremental=False):
     src = work / "src"
-    shutil.rmtree(src, ignore_errors=True)
-    src.mkdir(parents=True)
+    if not (working_tree and incremental):
+        shutil.rmtree(src, ignore_errors=True)
+    src.mkdir(parents=True, exist_ok=True)
     dirty = False
     commit = run(["git", "-C", str(REPO), "rev-parse", "--short=12", f"{rev}^{{commit}}"], quiet=True).strip()
     counter = int(run(["git", "-C", str(REPO), "log", "-1", "--format=%ct", rev], quiet=True))
@@ -369,9 +370,10 @@ def build_libraries(src, work, env, jobs):
     return outputs
 
 
-def build_programs(src, work, env, jobs, version, libs, deps):
+def build_programs(src, work, env, jobs, version, libs, deps, incremental=False):
     build = work / "build-arm"
-    shutil.rmtree(build, ignore_errors=True)
+    if not incremental:
+        shutil.rmtree(build, ignore_errors=True)
     openssl, lzma, jpeg = libs["openssl"], libs["lzma"], libs["jpeg"]
     log("configure the tc002 preset")
     run(["cmake", "--preset", "tc002", "-B", str(build), "-DBUILD_TESTING=OFF", f"-DAWTRIX_DEPS={deps}",
@@ -502,9 +504,13 @@ def main(argv=None):
     parser.add_argument("--repository", help="OWNER/NAME of the GitHub release (default: origin)")
     parser.add_argument("--tag", help="the release tag the USB package names (default: v<version>)")
     parser.add_argument("--no-usb", action="store_true", help="build no source archive and no USB package")
+    parser.add_argument("--incremental", action="store_true",
+                        help="with --working-tree: keep the build directory between runs (development only)")
     args = parser.parse_args(argv)
     if args.working_tree and args.commit != "HEAD":
         parser.error("--commit and --working-tree exclude each other")
+    if args.incremental and not args.working_tree:
+        parser.error("--incremental needs --working-tree")
     started = time.monotonic()
     try:
         if sys.platform != "darwin":
@@ -520,7 +526,7 @@ def main(argv=None):
         for log_name in ("openssl.log", "lzma.log", "jpeg.log", "cmake.log"):
             (work / log_name).unlink(missing_ok=True)
 
-        src, commit, counter, dirty = export_source(work, args.commit, args.working_tree)
+        src, commit, counter, dirty = export_source(work, args.commit, args.working_tree, args.incremental)
         commit_full = run(["git", "-C", str(REPO), "rev-parse", f"{args.commit}^{{commit}}"], quiet=True).strip()
         file_version = (src / "version").read_text().strip()
         version = f"{file_version}-g{commit}{'-dirty' if dirty else ''}"
@@ -550,7 +556,7 @@ def main(argv=None):
             data = archive.extractfile(f"base64_arduino-{b64}/src/base64.hpp").read()
         (deps / "base64/src/base64.hpp").write_bytes(data)
 
-        build = build_programs(src, work, env, args.jobs, version, libs, deps)
+        build = build_programs(src, work, env, args.jobs, version, libs, deps, args.incremental)
         bundle = output / "bundle"
         assemble(src, work, build, bundle, base_root, base_manifest, env)
         check_binaries(bundle, prefix)
