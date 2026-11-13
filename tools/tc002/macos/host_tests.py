@@ -58,7 +58,9 @@ def main(argv=None):
             subprocess.run(["clang", "-O2", "-w", "-I", "src", "-c", source, "-o", str(obj)], cwd=REPO, check=True)
             objects.append(str(obj))
         # The engine's float paths are exact only without fused multiply-adds, as on the clock.
-        build = ["clang++", "-std=c++17", "-O2", "-ffp-contract=off", "-w", "-I", "src", "-I", "tests",
+        # -Wall -Wextra as the CMake build has them; -Werror as CI sets it.
+        build = ["clang++", "-std=c++17", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror",
+                 "-Wno-unknown-warning-option", "-isystem", "src/platform/linux/host/vendor", "-I", "src", "-I", "tests",
                  "-I", "src/platform/linux/include", "-o", str(binary),
                  *(s for s in sources if not s.endswith(".c")), *objects]
         print(f"build {name}", flush=True)

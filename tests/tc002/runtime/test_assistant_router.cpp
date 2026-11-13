@@ -5,6 +5,8 @@
 
 #include <unistd.h>
 
+#include <algorithm>
+
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -149,6 +151,7 @@ struct Rig {
   std::vector<StreamControl> wakeSent;
   test::ManualExecutor* wakeWorker = nullptr;
   std::unique_ptr<tc002::wake::WakeListener> wake;
+  std::vector<tc002::wake::WakeHeard> wakeHeard;
   std::optional<AssistantRouter> router;
 
   explicit Rig(const fs::path* wakeModel = nullptr, bool withModule = true) {
@@ -207,7 +210,8 @@ struct Rig {
             [this] {
               ++music;
               return posix::Hold([this] { --music; });
-            }},
+            },
+            [this](const tc002::wake::WakeHeard& heard) { wakeHeard.push_back(heard); }},
         AssistantRouter::Parts{voice, withModule ? static_cast<AssistantRouter::Module&>(module) : noModule, gesture,
                                hub, wake.get(), wakeMicrophone});
     hub.tick(now);
@@ -303,6 +307,9 @@ void theWakeWordReachesTheApp(const fs::path& model) {
   const Triggered& heard = rig.module.triggers[0];
   const MicrophoneMark now = rig.hub.mark();
   check(heard.app == "Chat" && heard.name == "wake", "on_assistant gets \"wake\"");
+  check(std::any_of(rig.wakeHeard.begin(), rig.wakeHeard.end(),
+                    [](const tc002::wake::WakeHeard& h) { return h.name == "word" && !h.muted; }),
+        "the detection is reported with the model's name: " + std::to_string(rig.wakeHeard.size()));
   check(heard.mark.epoch == now.epoch && heard.mark.sample > 0 && heard.mark.sample <= now.sample,
         "the mark is the detection's position in the hub's stream");
   rig.frames(1800);
