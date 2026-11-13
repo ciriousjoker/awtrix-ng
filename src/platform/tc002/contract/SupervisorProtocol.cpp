@@ -434,7 +434,7 @@ bool decodeSupervisorMessage(std::string_view datagram, SupervisorMessage& out) 
       ok = field("usbPower").asBool(p.usbPower) && (!api::present(known) || known.asBool(p.usbKnown)) &&
            readInt(field("batteryPercent"), -1, 100, p.batteryPercent) &&
            readInt(field("batteryMillivolts"), -1, 10000, p.batteryMillivolts);
-      // Optional: a supervisor before 1.2.3-sc.2 sends no MCU state.
+      // Optional: an older supervisor sends no MCU state.
       const api::JsonReader mcu = field("mcu");
       if (ok && api::present(mcu))
         ok = readString(api::memberValue(mcu, "version"), p.mcuVersion) &&

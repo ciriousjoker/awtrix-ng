@@ -492,7 +492,7 @@ SHA-256 {base_pin['sources']['sha256']}
 def origin_repository():
     url = run(["git", "-C", str(REPO), "remote", "get-url", "origin"], quiet=True).strip()
     match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
-    return match[1] if match else "ciriousjoker/awtrix-ng"
+    return match[1] if match else "Blueforcer/awtrix-ng"
 
 
 def main(argv=None):
