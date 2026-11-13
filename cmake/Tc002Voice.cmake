@@ -26,3 +26,14 @@ add_library(tc002_voice_script STATIC "${TC002_DIR}/voice/VoiceScripting.cpp"
   "${TC002_DIR}/voice/VoiceRecorder.cpp" "${TC002_DIR}/voice/VoiceTransfers.cpp")
 target_link_libraries(tc002_voice_script PUBLIC tc002_voice_capture awtrix_script_extensions awtrix_host
   PRIVATE tc002_audio awtrix_posix awtrix_warnings)
+# The wake word models of /data (validated with the engine), their HTTP routes, the event and
+# microphone streams, and on_wake for the scripts.
+add_library(tc002_wake_store STATIC "${TC002_DIR}/wake/WakeModelStore.cpp")
+target_link_libraries(tc002_wake_store PUBLIC tc002_wake_listener
+  PRIVATE tc002_wake tc002_wake_files awtrix_json awtrix_posix awtrix_host awtrix_warnings)
+add_library(tc002_wake_api STATIC "${TC002_DIR}/wake/WakeApi.cpp" "${TC002_DIR}/voice/HttpStream.cpp"
+  "${TC002_DIR}/voice/MicrophoneStreamApi.cpp")
+target_link_libraries(tc002_wake_api PUBLIC tc002_wake_store tc002_contract
+  PRIVATE awtrix_host awtrix_json awtrix_warnings)
+add_library(tc002_wake_script STATIC "${TC002_DIR}/wake/WakeScripting.cpp")
+target_link_libraries(tc002_wake_script PUBLIC awtrix_script_extensions PRIVATE awtrix_warnings)

@@ -60,6 +60,7 @@ bool LinuxRuntime::runFrame() {
     quickSettings_->draw(app_->canvas(), awtrixFont(), now);
     voice_->draw(app_->canvas(), now);
   }
+  if (!updating) voice_->drawPrivacy(app_->canvas());
   const int64_t renderEndedUs = performance.now();
   board().show(app_->canvas());
   const int64_t displayEndedUs = performance.now();

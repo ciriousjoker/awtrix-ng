@@ -18,6 +18,7 @@ struct ScriptMeta;
 
 namespace awtrix::tc002::wake {
 class WakeListener;
+struct WakeHeard;
 }
 
 namespace awtrix::tc002::voice {
@@ -85,6 +86,8 @@ class AssistantRouter {
     std::function<void(bool)> setPanelPower;
     std::function<void()> dismissQuickSettings;
     std::function<posix::Hold()> holdMusic;
+    // Every detection of every model, muted ones flagged.
+    std::function<void(const wake::WakeHeard&)> heard;
   };
 
   struct Parts {
@@ -105,6 +108,7 @@ class AssistantRouter {
   std::vector<std::string> apps() const;
   bool start(VoiceTrigger trigger, int64_t now);
   void tick(int64_t now, bool knob);
+  // The wake word listener runs: some model is switched on and nothing holds the panel.
   bool listening() const;
   const char* appProblem() const;
 
@@ -127,6 +131,7 @@ class AssistantRouter {
   bool startApp(const std::string& app, VoiceTrigger trigger, MicrophoneMark mark, int64_t now);
   void tickInteraction(int64_t now);
   bool holdsMicrophone() const;
+  bool wakeMuted() const;
 
   Ports ports_;
   Parts parts_;

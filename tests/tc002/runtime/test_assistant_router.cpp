@@ -610,11 +610,6 @@ void wakeGating(const fs::path& model) {
   const Case cases[] = {
       {"the panel is busy", [](Rig& r, bool on) { r.allowed = on; }},
       {"the wake word is off", [](Rig& r, bool on) { r.voice.wakeWordOn = on; }},
-      {"the assistant is off", [](Rig& r, bool on) { r.voice.assistantOff = !on; }},
-      {"the assistant app cannot start", [](Rig& r, bool on) {
-         if (on) r.disabled.clear();
-         else r.disabled.insert("Chat");
-       }},
   };
   for (const Case& c : cases) {
     Rig rig(&model);
@@ -630,14 +625,25 @@ void wakeGating(const fs::path& model) {
     rig.frame();
     check(lastIs(rig.wakeSent, StreamControl::Stop), std::string("and stops when ") + c.what);
   }
-  {
+  // The assistant decides what a detection of the bundled model starts, not whether the clock
+  // listens: on_wake and the event stream hear every model.
+  const Case assistants[] = {
+      {"the assistant is off", [](Rig& r, bool on) { r.voice.assistantOff = !on; }},
+      {"the assistant app cannot start", [](Rig& r, bool on) {
+         if (on) r.disabled.clear();
+         else r.disabled.insert("Chat");
+       }},
+      {"Home Assistant is not ready", [](Rig& r, bool on) {
+         r.voice.homeAssistantChosen = true;
+         r.voice.isReady = on;
+       }},
+  };
+  for (const Case& c : assistants) {
     Rig rig(&model);
-    rig.voice.homeAssistantChosen = true;
+    c.set(rig, false);
     rig.frames(300);
-    check(rig.wakeSent.empty() && !rig.router->listening(), "with Home Assistant, the wake word waits until Voice is ready");
-    rig.voice.isReady = true;
-    rig.frame();
-    check(lastIs(rig.wakeSent, StreamControl::Probe) && rig.router->listening(), "then it listens");
+    check(rig.router->listening() && !rig.wakeSent.empty() && rig.wakeSent[0].operation == StreamControl::Probe,
+          std::string("the wake word listens while ") + c.what);
   }
   {
     Rig rig;

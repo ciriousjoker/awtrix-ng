@@ -22,6 +22,8 @@ add_awtrix_test(NAME tc002-wake SOURCES test_wake.cpp ${TC002_WAKE_SOURCES} INCL
 target_compile_options(tc002-wake-test PRIVATE ${TC002_EXACT_FLOAT_OPTIONS})
 add_awtrix_test(NAME tc002-wake-listener SOURCES test_wake_listener.cpp LIBRARIES tc002_wake_listener
   COMMAND "${PROJECT_SOURCE_DIR}/assets/tc002/wake/hey_awtrix.tflite" TIMEOUT 30)
+add_awtrix_test(NAME tc002-wake-models SOURCES test_wake_models.cpp LIBRARIES tc002_wake_api awtrix_host
+  COMMAND "${PROJECT_SOURCE_DIR}/assets/tc002/wake/hey_awtrix.tflite" TIMEOUT 30)
 add_awtrix_test(NAME tc002-endpointer SOURCES test_endpointer.cpp
   LIBRARIES tc002_wake tc002_wake_files tc002_speech_voice
   COMMAND "${PROJECT_SOURCE_DIR}/assets/tc002/vad/vad.tflite" "${PROJECT_SOURCE_DIR}/assets/speech/voice.atts"

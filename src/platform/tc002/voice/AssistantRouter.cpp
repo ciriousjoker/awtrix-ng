@@ -48,14 +48,22 @@ void AssistantRouter::tick(int64_t now, bool knob) {
   parts_.microphone.hold(holdsMicrophone());
   if (!parts_.wake) return;
   using Listen = wake::WakeListener::Listen;
-  const Listen listen = !listening() ? Listen::Off : ready ? Listen::On : Listen::Muted;
-  parts_.wake->setSensitivity(parts_.voice.wakeSensitivity());
-  if (const auto heard = parts_.wake->tick(now, listen))
-    startFrom(VoiceTrigger::Wake, parts_.wakeMicrophone.markOf(heard->sample), now);
+  parts_.wake->setBundle(parts_.voice.wakeWord(), parts_.voice.wakeSensitivity());
+  const Listen listen = !listening() ? Listen::Off : wakeMuted() ? Listen::Muted : Listen::On;
+  for (const wake::WakeHeard& heard : parts_.wake->poll(now, listen)) {
+    if (ports_.heard) ports_.heard(heard);
+    // Only the bundled model starts the assistant, and only when it could start now.
+    if (!heard.muted && heard.name == parts_.wake->bundleName() && present() && this->ready())
+      startFrom(VoiceTrigger::Wake, parts_.wakeMicrophone.markOf(heard.sample), now);
+  }
 }
 
-bool AssistantRouter::listening() const {
-  return parts_.wake && ports_.allowed() && parts_.voice.wakeWord() && present();
+bool AssistantRouter::listening() const { return parts_.wake && ports_.allowed() && parts_.wake->hasModels(); }
+
+// The clock's own sound: while it speaks, plays or records a clip, or Voice runs, detections are
+// reported muted, so the clock does not wake itself.
+bool AssistantRouter::wakeMuted() const {
+  return parts_.voice.busy() || parts_.module.busy() || ports_.speaking();
 }
 
 const char* AssistantRouter::appProblem() const {

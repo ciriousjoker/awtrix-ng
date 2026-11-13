@@ -1,5 +1,6 @@
 #include "platform/linux/LinuxRuntime.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -328,9 +329,14 @@ void LinuxRuntime::composeScriptServices() {
   scriptIcon_.setPanelSize(o_.width, o_.height);
   scriptIcon_.setRemoteImages(&*remoteImages_);
   scriptServices_.instructionLimit = target_->scriptInstructionLimit;
-  voice_.emplace(tc002::voice::VoiceStack::Setup{[this](std::string message) { return link_.send(std::move(message)); },
-                                                 supervised, speaker_.get(), o_.wakeWord,
-                                                 (privateRoot() / "voice-private").string()});
+  voice_.emplace(tc002::voice::VoiceStack::Setup{
+      [this](std::string message) { return link_.send(std::move(message)); }, supervised, speaker_.get(), o_.wakeWord,
+      (privateRoot() / "voice-private").string(), (privateRoot() / "wake").string(), target_->uploadReserveBytes,
+      [this]() -> int64_t {
+        if (!clock_.synchronized()) return -1;
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch()).count();
+      }});
   oauthVault_.emplace((privateRoot() / "script-private").string());
   oauthService_.emplace(
       *oauthVault_, [this](const oauth::HttpCall& call) { return oauthTransport_(call); },
@@ -409,6 +415,7 @@ void LinuxRuntime::composeExtensions() {
     if (auto* scripting = voice_->composeScripting(
             {[this](const std::string& app) { return engine().currentAppId() == app; }, o_.vad, fillSecrets()}))
       x.list.push_back(scripting);
+    if (auto* wake = voice_->composeWakeScripting(SavedScripts::savedNames)) x.list.push_back(wake);
     x.list.push_back(&*oauthScripting_);
     x.list.push_back(&*secretScripting_);
     scriptStores_.dropStale();
