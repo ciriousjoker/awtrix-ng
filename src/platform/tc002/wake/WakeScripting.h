@@ -21,6 +21,7 @@ class WakeScripting : public script::ScriptExtension {
 
   struct Services {
     std::function<std::vector<std::string>()> apps;
+    std::function<bool(const std::string& app, std::string& source)> source;
     std::function<std::vector<std::string>()> models;
   };
 
@@ -40,6 +41,7 @@ class WakeScripting : public script::ScriptExtension {
 
   Services services_;
   std::deque<Heard> heard_;
+  bool installed_ = false;
 };
 
 }

@@ -14,6 +14,8 @@ namespace {
 // the member and treats an attribute_error as "this app has no on_wake". The hook runs outside
 // the try, so an error in it is the app's own.
 constexpr const char* kSource = R"BERRY(
+import global
+import string
 var m = module('wake')
 global._wake_dispatch = def (app, name, score)
   var inst = _app_instance(app)
@@ -43,7 +45,7 @@ WakeScripting& self(bvm* vm) { return *static_cast<WakeScripting*>(script::Berry
 
 void WakeScripting::install(script::ScriptExtensionHost& host) {
   host.defineNative("_wake_models", &WakeScripting::nModels, this);
-  host.defineModule(kName, kSource);
+  installed_ = host.defineModule(kName, kSource);
 }
 
 void WakeScripting::heard(const std::string& model, float score) {
@@ -53,9 +55,21 @@ void WakeScripting::heard(const std::string& model, float score) {
   heard_.push_back({model, text});
 }
 
+// Only apps whose source names on_wake are called: an app without it costs nothing, and a call
+// into an app that fails marks the app broken.
 void WakeScripting::tick(script::ScriptExtensionHost& host, const RenderCtx* ctx) {
   if (heard_.empty()) return;
-  const std::vector<std::string> apps = services_.apps ? services_.apps() : std::vector<std::string>{};
+  if (!installed_) {
+    heard_.clear();
+    return;
+  }
+  std::vector<std::string> apps;
+  if (services_.apps)
+    for (std::string& app : services_.apps()) {
+      std::string source;
+      if (services_.source && services_.source(app, source) && source.find(kHook) != std::string::npos)
+        apps.push_back(std::move(app));
+    }
   for (std::size_t due = std::min(heard_.size(), kPerTick); due > 0; --due) {
     const Heard heard = std::move(heard_.front());
     heard_.pop_front();

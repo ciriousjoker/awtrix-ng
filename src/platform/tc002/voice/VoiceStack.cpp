@@ -80,10 +80,11 @@ VoiceScripting* VoiceStack::composeScripting(ScriptSetup setup) {
   return scripting_.get();
 }
 
-wake::WakeScripting* VoiceStack::composeWakeScripting(std::function<std::vector<std::string>()> apps) {
+wake::WakeScripting* VoiceStack::composeWakeScripting(std::function<std::vector<std::string>()> apps,
+                                                     std::function<bool(const std::string&, std::string&)> source) {
   if (!wake_) return nullptr;
   wakeScripting_ = std::make_unique<wake::WakeScripting>(
-      wake::WakeScripting::Services{std::move(apps), [this] { return listeningModels(); }});
+      wake::WakeScripting::Services{std::move(apps), std::move(source), [this] { return listeningModels(); }});
   return wakeScripting_.get();
 }
 

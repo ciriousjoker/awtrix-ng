@@ -415,7 +415,10 @@ void LinuxRuntime::composeExtensions() {
     if (auto* scripting = voice_->composeScripting(
             {[this](const std::string& app) { return engine().currentAppId() == app; }, o_.vad, fillSecrets()}))
       x.list.push_back(scripting);
-    if (auto* wake = voice_->composeWakeScripting(SavedScripts::savedNames)) x.list.push_back(wake);
+    if (auto* wake = voice_->composeWakeScripting(SavedScripts::savedNames, [this](const std::string& app, std::string& out) {
+          return store_.readSource(app, out);
+        }))
+      x.list.push_back(wake);
     x.list.push_back(&*oauthScripting_);
     x.list.push_back(&*secretScripting_);
     scriptStores_.dropStale();

@@ -50,7 +50,8 @@ class VoiceStack {
 
   VoiceScripting* composeScripting(ScriptSetup setup);
   // on_wake for every running app that defines it; apps names the installed ones.
-  wake::WakeScripting* composeWakeScripting(std::function<std::vector<std::string>()> apps);
+  wake::WakeScripting* composeWakeScripting(std::function<std::vector<std::string>()> apps,
+                                            std::function<bool(const std::string&, std::string&)> source);
   void composeRouter(AssistantRouter::Ports ports);
 
   void receive(const SupervisorMessage& message, int64_t now);
