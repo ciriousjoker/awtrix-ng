@@ -80,7 +80,8 @@ The clock uses Home Assistant's default voice assistant. To use another one:
 ## Switch it off
 
 Under **Assistant**, pick **Off**. It takes effect at once. The clock closes its connection to Home
-Assistant and does not listen for the wake word. Holding the knob and pressing **Assist** do nothing.
+Assistant, and the wake word starts nothing. Holding the knob and pressing **Assist** do nothing.
+To stop listening for "Hey AWTRIX" too, switch off **Wake word**.
 Its settings stay saved, so picking **Home Assistant** again is enough.
 
 ## Talk to it
@@ -301,10 +302,12 @@ the knob, or a minute has passed. The recording goes straight to your Home Assis
 stored on the clock. With **Assistant** on **Off**, the microphone is not used for the assistant at
 all.
 
-With **Wake word** on, the microphone listens all the time while the assistant is ready, and while
-an app answers. The clock itself listens for "Hey AWTRIX". While it listens, it keeps at most the
-last second of sound in memory and stores nothing. Only the request after the wake word goes to
-Home Assistant.
+With **Wake word** on, or a [wake word of your own](../reference/http.md#wake-words) switched on,
+the microphone listens all the time. The clock itself listens for the words. While it listens, it
+keeps at most the last second of sound in memory and stores nothing. Only the request after the
+wake word goes to Home Assistant. While a client streams the microphone over the network
+([`/api/v1/mic/stream`](../reference/http.md#get-apiv1micstream)), a red dot shows in the
+top-right corner of the display.
 
 With an app as the assistant, the app records what you say and decides where it goes, for example
 to a speech service on the internet. Any app that uses voice can record while it is shown, also
