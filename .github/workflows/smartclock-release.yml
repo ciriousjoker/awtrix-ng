@@ -1,0 +1,155 @@
+name: Smart Clock release
+
+# A tag vX.Y.Z-sc.N of the fork builds the TC002 release the upstream way (Buildroot musl and
+# ARM GNU glibc toolchains, kernel tree), publishes awtrix-ng-tc002.awup,
+# usb-awtrix-ng-tc002.zip and tc002-sources.tar.gz as a GitHub release, and the OTA index the
+# web UI's update check reads on GitHub Pages. A tag pushed with the workflow token starts no
+# workflow, so the upstream sync dispatches this one on its tag (gh workflow run --ref TAG).
+
+on:
+  push:
+    tags: ["v*-sc.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smartclock-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Tag and version agree
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          [[ "$GITHUB_REF" == refs/tags/v*-sc.* ]] || { echo "::error::run this workflow on a tag vX.Y.Z-sc.N"; exit 1; }
+          version=$(tr -d '[:space:]' < version)
+          [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "::error::tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+
+  tc002:
+    needs: check
+    uses: ./.github/workflows/tc002-update.yml
+
+  release:
+    name: Publish the GitHub release
+    needs: tc002
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: tc002-update
+          path: dist
+      - name: Write the release notes
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          base=${version%-sc.*}
+          previous=$(git tag --list 'v*-sc.*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -1 || true)
+          range=${previous:+$previous..}$GITHUB_REF_NAME
+          {
+            echo "Smart Clock firmware for the Ulanzi TC002, on top of [AWTRIX NG $base](https://github.com/Blueforcer/awtrix-ng/releases/tag/v$base)."
+            echo
+            echo "Install \`awtrix-ng-tc002.awup\` from the clock's web UI (**System → Maintenance**), or let the update check offer it."
+            echo "\`usb-awtrix-ng-tc002.zip\` is the USB installation package, \`tc002-sources.tar.gz\` the corresponding sources."
+            echo
+            echo "### Changes${previous:+ since $previous}"
+            echo
+            git log --first-parent --no-merges --format='- %s' "$range" -- . ':!docs' | head -60
+            echo
+            echo "### Checksums"
+            echo
+            echo '```'
+            (cd dist && sha256sum awtrix-ng-tc002.awup usb-awtrix-ng-tc002.zip tc002-sources.tar.gz)
+            echo '```'
+          } > release-notes.md
+          cat release-notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          files=(dist/awtrix-ng-tc002.awup dist/usb-awtrix-ng-tc002.zip dist/tc002-sources.tar.gz)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md --draft=false --latest
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --verify-tag --latest \
+              --title "Smart Clock ${GITHUB_REF_NAME#v}" --notes-file release-notes.md
+          fi
+
+  pages:
+    name: Publish the OTA index
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: tc002-update
+          path: dist
+      # The same layout as upstream's documentation site: firmware/ota/index.json names the
+      # release and the size and SHA-256 of its package, firmware/ota/TAG/ holds it.
+      - name: Assemble the site
+        run: |
+          mkdir -p "site/firmware/ota/$GITHUB_REF_NAME" site/firmware/tc002
+          cp dist/awtrix-ng-tc002.awup "site/firmware/ota/$GITHUB_REF_NAME/"
+          cp dist/usb-awtrix-ng-tc002.zip site/firmware/tc002/
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import hashlib, json, pathlib, sys
+          tag = sys.argv[1]
+          root = pathlib.Path("site/firmware/ota")
+          data = (root / tag / "awtrix-ng-tc002.awup").read_bytes()
+          index = {"version": tag, "assets": {"awtrix-ng-tc002.awup": {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}}}
+          (root / "index.json").write_text(json.dumps(index), encoding="utf-8")
+          print(json.dumps(index))
+          PY
+          cat > site/index.html <<EOF
+          <!doctype html><meta charset="utf-8"><title>Smart Clock firmware</title>
+          <p>Smart Clock firmware for the Ulanzi TC002: <a href="https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME">$GITHUB_REF_NAME</a>.
+          The clock's update check reads <a href="firmware/ota/index.json">firmware/ota/index.json</a>.</p>
+          EOF
+          touch site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  report:
+    name: Open an issue when the release fails
+    needs: [check, tc002, release, pages]
+    if: failure()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "Release $GITHUB_REF_NAME failed" --body "$(cat <<EOF
+          The release workflow for \`$GITHUB_REF_NAME\` failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          To do:
+          1. Open the run, find the failing job and fix the cause on \`smartclock\`.
+          2. If the tag must point at the fix, move it: \`git tag -f $GITHUB_REF_NAME && git push -f origin $GITHUB_REF_NAME\`, or bump the version file and tag the next \`-sc.N\`.
+          3. Run the workflow again: \`gh workflow run smartclock-release.yml --ref $GITHUB_REF_NAME\`.
+
+          A release can also be built on a Mac: \`tools/tc002/macos/build.sh OUT --tag $GITHUB_REF_NAME\`, then \`gh release upload\` the three files.
+          EOF
+          )"

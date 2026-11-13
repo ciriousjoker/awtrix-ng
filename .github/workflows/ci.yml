@@ -254,7 +254,8 @@ jobs:
 
   release:
     name: Publish firmware release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Smart Clock tags (vX.Y.Z-sc.N) are released by smartclock-release.yml.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-sc.')
     runs-on: ubuntu-latest
     permissions:
       contents: write

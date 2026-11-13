@@ -12,6 +12,8 @@ on:
 jobs:
   notify:
     name: Post release to Discord
+    # The webhook secret exists only upstream; forks announce nothing.
+    if: github.repository == 'Blueforcer/awtrix-ng'
     runs-on: ubuntu-latest
     steps:
       - name: Send webhook
