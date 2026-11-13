@@ -28,6 +28,9 @@ struct WifiOptions {
   std::string moduleDirectory;
   // The developer flag file leaves root ADB over TCP as it is.
   bool keepAdbTcp = false;
+  // Before the setup access point opens, a scan-only supplicant looks for networks, and the access
+  // point answers scans with those results, refreshed when the radio scans while it serves.
+  bool setupScan = false;
 };
 
 // Owns the Wi-Fi link: USB-only ADB, stock supplicant stopped, aic8800 driver, our own
@@ -113,6 +116,8 @@ class WifiService : public Service, public WifiControl {
   bool commandWanted() const;
   void startScan();
   void finishScan(std::vector<tc002::WifiNetwork> networks, bool fresh);
+  bool setupScanDue() const;
+  void endSetupScan();
   void probeIfHidden();
   bool profileVisible() const;
   void scanTimers();
@@ -176,6 +181,9 @@ class WifiService : public Service, public WifiControl {
   int lastRejectStatus_ = -1;
   bool probeHidden_ = false;
   wifi::WifiScan scan_;
+  // A scan-only supplicant runs before the setup access point (WifiOptions::setupScan).
+  bool setupScan_ = false;
+  int64_t setupScanDeadline_ = -1, setupScanAt_ = -1;
   bool eraseRequested_ = false;
 
   tc002::WifiLink link_ = tc002::WifiLink::Unconfigured;

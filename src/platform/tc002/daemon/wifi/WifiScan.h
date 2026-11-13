@@ -29,6 +29,7 @@ class WifiScan {
   void requestResults() { wantResults_ = true; }
   void takeResults() { wantResults_ = false; }
   bool hasResults() const { return lastAt_ >= 0; }
+  int64_t ageMs(int64_t now) const { return lastAt_ < 0 ? -1 : now - lastAt_; }
   bool contains(std::string_view ssid) const;
   const std::vector<tc002::WifiNetwork>& networks() const { return networks_; }
   const std::string& error() const { return error_; }

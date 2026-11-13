@@ -284,6 +284,7 @@ WifiOptions makeWifiOptions(const DaemonOptions& options, bool keepAdbTcp) {
   wifiOptions.stateDir = options.data + "/network";
   wifiOptions.runDir = wifiRun;
   wifiOptions.keepAdbTcp = keepAdbTcp;
+  wifiOptions.setupScan = true;
   wifiOptions.supplicantPath = options.supplicantPath();
   wifiOptions.moduleDirectory = options.moduleDirectory();
   return wifiOptions;

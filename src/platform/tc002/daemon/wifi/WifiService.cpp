@@ -42,6 +42,9 @@ constexpr int64_t kAccessPointRetryMs = 60000;
 constexpr int64_t kAccessPointIdleMs = 30000;
 constexpr int64_t kProvisionReplyMs = 1000;
 constexpr int64_t kAddressGraceMs = 30000;
+// The scan before the setup access point opens, and how long its results count as current.
+constexpr int64_t kSetupScanMs = 10000;
+constexpr int64_t kScanFreshMs = 60000;
 
 void eraseString(std::string& text) {
   if (!text.empty()) wifi::secureErase(&text[0], text.size());
@@ -103,7 +106,7 @@ WifiService::WifiService(DeviceState& state, WifiOptions options, ControlRegistr
       json.beginObject().member("ok", false).member("error", "stopping").endObject();
       return out;
     }
-    if (accessPoint_) {
+    if (accessPoint_ && !options_.setupScan) {
       scan_.unavailable();
       json.beginObject().member("ok", false).member("error", scan_.error()).endObject();
       return out;
@@ -267,23 +270,33 @@ void WifiService::beginSupplicant() {
   if (!haveProfile_) accessPoint_ = true;
   if (accessPoint_ && scan_.active()) finishScan({}, false);
   probeHidden_ = !accessPoint_ && scan_.hasResults() && !profileVisible();
+  const bool setupScan = accessPoint_ && setupScanDue();
   std::string apName = state_.network().hostname;
   if (!ip::validHostname(apName)) apName = ip::hostnameForMac(mac_);
   if (apName.empty()) apName = "awtrixng";
   apName.resize(apName.size() > 32 ? 32 : apName.size());
-  std::string config = accessPoint_ ? wifi::accessPointConfig(apName, controlDirectory_)
-                                   : wifi::supplicantConfig(profile_, controlDirectory_, probeHidden_);
+  std::string config = setupScan    ? wifi::scanOnlyConfig(controlDirectory_)
+                       : accessPoint_ ? wifi::accessPointConfig(apName, controlDirectory_)
+                                      : wifi::supplicantConfig(profile_, controlDirectory_, probeHidden_);
   int error = 0;
   const bool written = !config.empty() && wifi::writePrivateFile(configPath_, config, error);
   eraseString(config);
   if (!written) { fail(Stage::Supplicant, std::string("config write failed: ") + std::strerror(error)); return; }
   supplicant_ = system_->startSupplicant(options_.supplicantPath, configPath_);
   if (supplicant_ < 0) { fail(Stage::Supplicant, "supplicant spawn failed"); return; }
-  logEvent("%s supplicant started (pid %d%s)", accessPoint_ ? "access-point" : "network", static_cast<int>(supplicant_),
-           probeHidden_ ? ", probing for a hidden ssid" : "");
+  logEvent("%s supplicant started (pid %d%s)", setupScan ? "scan-only" : accessPoint_ ? "access-point" : "network",
+           static_cast<int>(supplicant_), probeHidden_ ? ", probing for a hidden ssid" : "");
   setStep(Step::SupplicantRunning);
   supplicantStartedAt_ = now_;
   session_.start(now_);
+  if (setupScan) {
+    setupScan_ = true;
+    setupScanAt_ = now_;
+    setupScanDeadline_ = now_ + kSetupScanMs;
+    scan_.start(now_);
+    setLink(WifiLink::Unconfigured);
+    return;
+  }
   if (accessPoint_) {
     stationDeadline_ = -1;
     accessPointRetryAt_ = nextAccessPointRetry();
@@ -442,6 +455,8 @@ bool WifiService::onChildExit(pid_t pid, int status, int64_t nowMs) {
 void WifiService::supplicantExited(int status) {
   supplicant_ = -1;
   addressDeadline_ = -1;
+  setupScan_ = false;
+  setupScanDeadline_ = -1;
   closeControl();
   if (stopping_) {
     unlink(configPath_.c_str());
@@ -572,8 +587,15 @@ void WifiService::eraseCredentials() {
 
 void WifiService::scan(ScanDone done) {
   now_ = system_->nowMs();
-  if (stopping_ || accessPoint_) {
+  if (stopping_ || (accessPoint_ && !options_.setupScan)) {
     if (accessPoint_) scan_.unavailable();
+    if (done) done(scan_.networks());
+    return;
+  }
+  // The access point answers at once from its last results unless they are old and a scan can
+  // still refresh them; the scan before it opens answers when it ends.
+  if (accessPoint_ && !setupScan_ && !scan_.active() && scan_.hasResults() &&
+      scan_.ageMs(now_) < kScanFreshMs) {
     if (done) done(scan_.networks());
     return;
   }
@@ -582,13 +604,35 @@ void WifiService::scan(ScanDone done) {
 }
 
 void WifiService::startScan() {
-  if (accessPoint_ || !scan_.start(now_)) return;
+  if ((accessPoint_ && !options_.setupScan) || !scan_.start(now_)) return;
   if (step_ == Step::Unconfigured) beginSupplicant();
 }
 
 void WifiService::finishScan(std::vector<tc002::WifiNetwork> networks, bool fresh) {
+  // Results the access point fetched itself replace the list only when they hold networks: a
+  // radio that cannot scan while it serves answers with an empty table.
+  if (fresh && accessPoint_ && !setupScan_ && networks.empty()) fresh = false;
+  const std::size_t found = networks.size();
   scan_.finish(std::move(networks), fresh, now_);
   if (fresh) probeIfHidden();
+  if (setupScan_) {
+    logEvent("%zu networks in range before the setup access point%s", fresh ? found : scan_.networks().size(),
+             fresh ? "" : " (the scan did not finish)");
+    endSetupScan();
+  }
+}
+
+// Once a minute at most, so a radio that never finishes a scan still gets its access point.
+bool WifiService::setupScanDue() const {
+  if (!options_.setupScan || (setupScanAt_ >= 0 && now_ - setupScanAt_ < kScanFreshMs)) return false;
+  const int64_t age = scan_.ageMs(now_);
+  return age < 0 || age >= kScanFreshMs;
+}
+
+void WifiService::endSetupScan() {
+  setupScan_ = false;
+  setupScanDeadline_ = -1;
+  if (!stopping_ && step_ == Step::SupplicantRunning) restartSupplicant();
 }
 
 void WifiService::probeIfHidden() {
@@ -602,6 +646,11 @@ void WifiService::probeIfHidden() {
 bool WifiService::profileVisible() const { return scan_.contains(profile_.ssid); }
 
 void WifiService::scanTimers() {
+  if (setupScan_ && setupScanDeadline_ >= 0 && now_ >= setupScanDeadline_) {
+    logEvent("scan before the setup access point did not finish; opening it");
+    finishScan({}, false);
+    return;
+  }
   if (scan_.timedOut(now_)) {
     logEvent("scan did not complete; answering with the previous results");
     finishScan({}, false);
@@ -741,6 +790,10 @@ void WifiService::handleReply(Pending kind, const std::string& reply) {
 
 void WifiService::handleEvent(const std::string& message) {
   const wifi::WpaEvent event = wifi::parseEvent(message);
+  if (accessPoint_ && options_.setupScan && event.type == wifi::WpaEventType::ScanResults) {
+    scan_.resultsEvent(false);
+    return;
+  }
   if (accessPoint_) {
     if (event.type == wifi::WpaEventType::AccessPointEnabled) setLink(WifiLink::AccessPoint);
     else if (event.type == wifi::WpaEventType::AccessPointDisabled) setLink(WifiLink::Unconfigured);
@@ -874,6 +927,7 @@ int64_t WifiService::nextDeadlineMs() const {
   if (step_ == Step::SupplicantRunning) earliest(best, stationDeadline_);
   if (link_ == WifiLink::AccessPoint) earliest(best, accessPointRetryAt_);
   earliest(best, scan_.nextDeadlineMs());
+  earliest(best, setupScanDeadline_);
   if (step_ == Step::Backoff) earliest(best, retryAt_);
   if (step_ == Step::SupplicantRunning) {
     earliest(best, session_.nextDeadlineMs(now_, commandWanted()));
@@ -1063,7 +1117,7 @@ std::string WifiService::statusJson() const {
       .member("adb", adbPolicyName(adb_))
       .member("adbDetail", adbDetail_)
       .member("adbTcpListeners", listeners)
-      .member("supplicant", supplicant_ < 0 ? "none" : accessPoint_ ? "access-point" : "network")
+      .member("supplicant", supplicant_ < 0 ? "none" : setupScan_ ? "scan-only" : accessPoint_ ? "access-point" : "network")
       .member("driver", driver_)
       .member("scanning", scan_.active())
       .member("scanError", scan_.error())

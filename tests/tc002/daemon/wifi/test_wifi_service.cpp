@@ -276,7 +276,7 @@ const std::string kModules = "/data/awtrix-ng/current/lib/modules";
 class Harness {
  public:
   explicit Harness(const std::string& root, bool keepAdbTcp = false, const std::string& supplicantPath = kSupplicant,
-                   const std::string& moduleDirectory = kModules)
+                   const std::string& moduleDirectory = kModules, bool setupScan = false)
       : root_(root) {
     system = new FakeSystem();
     system->clock = &now;
@@ -286,6 +286,7 @@ class Harness {
     options.keepAdbTcp = keepAdbTcp;
     options.supplicantPath = supplicantPath;
     options.moduleDirectory = moduleDirectory;
+    options.setupScan = setupScan;
     awtrix::tc002::NetworkStatus network;
     network.ipv4 = "10.0.0.2";
     network.hostname = "awtrix-test";
@@ -614,6 +615,50 @@ void testScanWithoutCredentials() {
   check(h.system->supplicants.size() == 1 && h.network().link == WifiLink::AccessPoint &&
             h.system->supplicant.count("SCAN") == 0 && h.system->supplicant.count("STA-FIRST") == 0,
         "AP remains up indefinitely without stored credentials");
+  removeTree(root);
+}
+
+void testSetupScanBeforeTheAccessPoint() {
+  const std::string root = makeRoot("setup-scan");
+  Harness h(root, false, kSupplicant, kModules, true);
+  h.system->interface = true;
+  h.system->stock = false;
+  check(h.service->start(h.now), "start");
+  h.run(3000);
+  check(h.system->supplicants.size() == 1 && !contains(h.system->configs[0], "mode=2") &&
+            h.system->supplicant.count("SCAN") == 1 && h.network().link != WifiLink::AccessPoint,
+        "a scan-only supplicant looks for networks before the setup access point");
+  check(contains(h.registry.call("wifi-status", ""), "\"supplicant\":\"scan-only\""), "the status says so");
+  check(h.system->supplicant.event("<3>CTRL-EVENT-SCAN-RESULTS "), "scan event");
+  h.run(500);
+  check(h.system->supplicants.size() == 2 && contains(h.system->configs[1], "\tmode=2\n") &&
+            h.network().link == WifiLink::AccessPoint,
+        "then the access point opens");
+  std::vector<awtrix::tc002::WifiNetwork> answer;
+  unsigned answers = 0;
+  const auto collect = [&](const std::vector<awtrix::tc002::WifiNetwork>& networks) {
+    answer = networks;
+    ++answers;
+  };
+  h.service->scan(collect);
+  check(answers == 1 && answer.size() == 2 && answer[0].ssid == "Home" && h.system->supplicant.count("SCAN") == 0,
+        "the access point answers at once with what it found before it opened");
+  check(contains(h.registry.call("wifi-scan-results", ""), "\"ssid\":\"Home\"") &&
+            !contains(h.registry.call("wifi-scan-results", ""), "scan-unavailable"),
+        "and reports no limitation");
+  h.run(61000);
+  h.system->supplicant.scanResults = "bssid / frequency / signal level / flags / ssid\n";
+  answers = 0;
+  h.service->scan(collect);
+  h.run(100);
+  check(h.system->supplicant.count("SCAN") == 1 && answers == 0, "an old list asks the radio again");
+  check(h.system->supplicant.event("<3>CTRL-EVENT-SCAN-RESULTS "), "scan event while serving");
+  h.run(500);
+  check(answers == 1 && answer.size() == 2 && answer[0].ssid == "Home",
+        "a radio that finds nothing while it serves keeps the list from before");
+  check(h.system->supplicants.size() == 2 && h.network().link == WifiLink::AccessPoint, "the access point stays up");
+  h.service->requestStop(h.now);
+  h.run(4000);
   removeTree(root);
 }
 
@@ -1424,6 +1469,7 @@ int main() {
   testControlInterfaceTimeout();
   testTamperedStoreAndDriverFailure();
   testScanWithoutCredentials();
+  testSetupScanBeforeTheAccessPoint();
   testStationScanSharingAndTimeout();
   testSilentSupplicantKeepsScanCache();
   testAccessPointFallbackAndRetry();
