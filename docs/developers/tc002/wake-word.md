@@ -5,8 +5,8 @@ only: [tc002]
 # TC002 wake word
 
 The TC002 can start its voice assistant, [Home Assistant Voice](ha-voice.md) or an app that uses
-the [voice module](voice-module.md), when it hears "Hey AWTRIX". The clock
-detects the word itself: it runs a [microWakeWord](https://github.com/kahrendt/microWakeWord) v2
+the [voice module](voice-module.md), when it hears "Hey AWTRIX", and it listens for up to four
+wake words of your own at the same time. The clock detects the words itself: it runs a [microWakeWord](https://github.com/kahrendt/microWakeWord) v2
 streaming model on the continuous microphone stream ([Continuous microphone audio](audio-gate.md)),
 and nothing leaves the clock before a detection. The code is in
 [`src/platform/tc002/wake/`](https://github.com/Blueforcer/awtrix-ng/tree/main/src/platform/tc002/wake).
@@ -24,7 +24,10 @@ The ESP32 builds have none of it. Setup for end users is in the
 | Stream | `ModelStream` | Runs a model on PCM: the frontend's features, quantised as the trainer fed them, one invoke every stride. The detector and the endpointer each own one. |
 | Window | `ProbabilityWindow` | Averages the last `window` outputs and says when the mean reaches `cutoff`. It knows nothing of wake words: the detector and the endpointer each own one. |
 | Detector | `WakeDetector` | Reports a detection when its window fires, at the cutoff of the sensitivity it was given. After a detection it waits 1 s of audio. In the first second after a reset nothing fires: the frontend's noise estimate starts at zero, so its first frames look loud. |
-| Listener | `WakeListener` | Runs its stream through the [microphone hub](microphone.md#microphone-hub), owns a worker thread for the detector, reports each detection once to the runtime and keeps the model in memory only while it is wanted. |
+| Listener | `WakeListener` | Runs its stream through the [microphone hub](microphone.md#microphone-hub) and every wanted model on it: one `WakeFrontend` for all of them on a worker thread, whose frames each model's detector takes through `WakeDetector::push`. It reports each detection once to the runtime, with the model's name, and keeps the models in memory only while they are wanted. |
+| Models | `WakeModelStore` | The models of `/data/awtrix-ng/wake` beside the bundled one, checked with the engine before anything is written ([Your own wake words](#your-own-wake-words)). |
+| Routes | `WakeApi`, `HttpStream` | `/api/v1/wake/models`, the event stream `/api/v1/wake/events` ([HTTP API](../../reference/http.md#wake-words)). |
+| Scripts | `WakeScripting` | `on_wake(name, score)` of every running app that has it, and `import wake`. |
 
 The model must match the microWakeWord contract: input `[1, N, 40]` int8, one uint8 output. The
 engine has the operators the shipped models use: CONV_2D, DEPTHWISE_CONV_2D, FULLY_CONNECTED,
@@ -33,8 +36,9 @@ operators (CALL_ONCE, VAR_HANDLE, READ_VARIABLE, ASSIGN_VARIABLE). Anything else
 a short reason: `not a TensorFlow Lite model`, `unsupported tensor N`, `unsupported operator N` (a
 custom operator too), `unsupported graph` or `the model needs too much memory`.
 
-Measured by hand, since no test prints it: the shipped model of 47 KB needs an arena of about 9 KB.
-On the clock, detection takes about 6 to 7 % of one CPU core, and the frame rate stays at 42 fps.
+Measured by hand, since no test prints it: the shipped model of 47 KB needs an arena of 8,864
+bytes. On the clock, detection takes about 6 to 7 % of one CPU core, and the frame rate stays at
+42 fps. Each further model adds its invokes; the frontend runs once for all of them.
 
 ## The model
 
@@ -57,6 +61,34 @@ the file cannot be used by then, it writes that to the log and tries again every
 
 To ship another model, replace both files with the trainer's `model.tflite` and `custom.json` under
 these names. The bundle tools accept the two files only together.
+
+## Your own wake words
+
+`WakeModelStore` keeps up to eight models in `/data/awtrix-ng/wake` (the runtime's data directory's
+parent, so they survive updates and are outside backups) as `NAME.tflite` with `NAME.json`: the
+trainer's `probability_cutoff`, `sliding_window_size` and `feature_step_size` (10), the phrase as
+`wake_word`, and the store's own `enabled` and `sensitivity`. `NAME` is 1 to 32 of `a-z`, `0-9` and
+`_`. At most four models listen at once, the bundled one included.
+
+- **Checked first.** A new or replaced model is loaded with `WakeDetector::load` and configured with
+  its window before anything is written; the loader's reason becomes the `422` of the route. The
+  files are written with `posix::replaceText` (a private file, synced and renamed), the model first.
+  An upload must leave 1 MiB free on `/data`, as icons and sounds do.
+- **The bundled model** `hey_awtrix` stays read-only. Its `enabled` and `sensitivity` are the Voice
+  settings `wakeWord` and `wakeSensitivity`, so the web UI's switch and the API agree.
+- **No restart.** `VoiceStack` hands `enabledModels()` to the listener whenever the store's revision
+  changes. A model whose files changed (a new version) is read again; a new level reaches its loaded
+  detector with the next block. A model added while the stream runs joins it with a reset detector,
+  without a new warm-up of the shared frontend.
+- **At start** the store reads the directory once and leaves out, with a log line, a model the
+  engine refuses or whose settings are missing. A factory reset deletes the models.
+
+The routes are in the [HTTP API](../../reference/http.md#wake-words). `GET /api/v1/wake/events` and
+`GET /api/v1/mic/stream` are endless chunked responses: the loop publishes into `HttpStream`, which
+keeps a bounded queue per client, and each client's listener thread writes what queued for it,
+waking every 250 ms to let httplib notice a closed socket. A client whose queue outgrows its bound
+is ended. With at most three event clients and two microphone clients, three of the listener's
+eight threads stay for the web UI. `VoiceStack::stop` ends every client before the server stops.
 
 ## Sensitivity
 
@@ -83,22 +115,25 @@ the window's threshold: the window, the warm-up and the cooloff go on. A model l
 - The settings are `wakeWord` and `wakeSensitivity` in the Voice configuration
   (`voice-private/voice.json`), off and `normal` by default. The web UI and `POST /api/v1/voice` change it; see
   [Credentials and configuration API](ha-voice.md#credentials-and-configuration-api).
-- The listener streams while the wake word is on and the assistant is there
-  (`AssistantRouter::listening`, reported as `wakeListening`):
-  - With `off` as the assistant: never.
-  - With Home Assistant as the assistant: while Voice is connected and idle.
-  - With an app: while that app is installed with `@needs voice`, switched on and neither a module
-    nor headless.
+- The listener streams while at least one model is switched on: `hey_awtrix` through `wakeWord`, the
+  others through their `enabled` (`AssistantRouter::listening`, reported as `wakeListening`). The
+  assistant setting does not matter for that.
+  - A detection of `hey_awtrix` starts the assistant only when one is set, there (`present()`) and
+    ready to start: with Home Assistant while Voice is connected and idle, with an app while that app
+    is installed with `@needs voice`, switched on and neither a module nor headless.
+  - Every detection reaches the event stream, and every unmuted one `on_wake` of the scripts.
 
   The boot intro, an update and setup mode stop it, as they pause Voice. It listens through the
   [microphone hub](microphone.md#microphone-hub), which shares the stream with Voice and the voice
   module. Its epochs and sample positions are its own.
-- It reports a detection only while the assistant could start, the same check as for the knob's
-  hold. Otherwise it is muted: while a script records or plays, while a trigger waits for its app,
-  while the app has a transfer or result of the [voice module](voice-module.md) outstanding, and with
-  an app as the assistant while the clock speaks. A muted listener keeps its stream and its detector running, so "Hey AWTRIX" right after an answer
-  needs no new stream and no warm-up. A detection in audio that arrived while it was muted is
-  dropped, and its cool-off still runs, so the clock's own voice does not start the assistant.
+- It is muted while the clock makes sound of its own: while it speaks, while a script records or
+  plays a clip, and while Voice runs (`AssistantRouter::wakeMuted`). A muted listener keeps its
+  stream and its detectors running, so "Hey AWTRIX" right after an answer needs no new stream and no
+  warm-up. A detection in audio that arrived while it was muted is reported with `muted` and acts on
+  nothing, and its cool-off still runs, so the clock's own voice does not start the assistant.
+- The assistant starts only while it could start, the same check as for the knob's hold: not while
+  a trigger waits for its app or the app has a transfer or result of the
+  [voice module](voice-module.md) outstanding.
 - A detection starts the assistant the Voice settings name, as the knob's 500 ms hold does
   (`AssistantRouter::start`). For Home Assistant, Voice's overlay appears at once. Voice is then busy, so
   the listener stops its stream, and the hub keeps the stream open until Voice's capture joins it.
@@ -115,7 +150,7 @@ the window's threshold: the window, the warm-up and the cooloff go on. A model l
 - A jump in the sample position, or a full worker queue (16 blocks), resets the detector.
 - While it listens, `music.level()`, `music.bands()` and `music.pitch()` read the hub's stream
   instead of separate snapshots.
-- Each detection writes `wake word: heard (score …)` to the log. The listener keeps no audio beyond
+- Each unmuted detection writes `wake word: heard NAME (score …)` to the log. The listener keeps no audio beyond
   the blocks its worker has not processed yet. While the stream runs, the hub keeps its last second
   in memory ([lead-in](microphone.md#microphone-hub)), so it holds one all the time the listener
   streams. It overwrites that second continuously and drops it when the stream ends. Neither writes
@@ -167,7 +202,11 @@ three sensitivity levels on a steady probability and on the reference signal, an
 `tests/tc002/arm/` runs the same test on Cortex-A7 under qemu-arm. `test_wake_listener.cpp` covers the
 settings file, the stream states, detections, muting, the stop while Voice is busy, restarts, gaps,
 the model leaving memory while the setting is off and a level that applies at once and to a model
-loaded again. `test_assist_session.cpp` covers the `wakeWord` and `wakeSensitivity` settings. `test_endpointer.cpp` covers the endpointer's decisions on exact voice patterns and the model
+loaded again, and with several models: one stream for all, models joining and leaving, muted
+reports, a broken model beside a good one, and a detector on the shared frontend computing exactly
+what it computes alone. `test_wake_models.cpp` covers the store (checks, limits, the bundled model,
+reading the directory again) and the routes. The portable suites also run on a Mac
+([Building on macOS](building-on-macos.md#tests)). `test_assist_session.cpp` covers the `wakeWord` and `wakeSensitivity` settings. `test_endpointer.cpp` covers the endpointer's decisions on exact voice patterns and the model
 on speech of the English voice pack, a pause within a sentence and room noise, also on qemu-arm. No
 test prints arena sizes or run times.
 

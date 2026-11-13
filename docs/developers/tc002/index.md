@@ -296,6 +296,7 @@ The shared paths are in
 | `/data/awtrix-ng/app/` | the runtime's data: settings, icons, MP3s, scripts, `activation-consent` (`yes` or `no` from the web UI), `activation` (the activation id the Hub took) |
 | `/data/awtrix-ng/network/` | the Wi-Fi credential record |
 | `/data/awtrix-ng/script-private/`, `/data/awtrix-ng/script-secrets/` (0700) | the scripts' sign-ins and API keys, outside `app/` so no backup holds them |
+| `/data/awtrix-ng/wake/` (0700) | your own [wake word](wake-word.md#your-own-wake-words) models, `NAME.tflite` and `NAME.json` |
 | `/data/awtrix-ng/state/` (0700) | `boot-attempts`, `update-state.json`, `update-result` (what the flash helper recorded for a web update), `uid`, `rebooted` (the daemon rebooted the clock), `loader.log`, `res-image.json` (what `flash-loader` wrote), `keep-adb-tcp` (developer flag, see [Debugging](#debugging-on-the-clock)), `autostart` (own program, see [Own program at start](#own-program-at-start)) |
 | `/res/lib/libawtrix-loader.so`, `/res/etc/EasyUI.cfg` | the loader and the configuration that names it |
 | `/res/awtrix-ng/loop.ko` | the loop driver the loader mounts the release with |
@@ -396,6 +397,8 @@ and serves `webui/index.html` from disk.
 
 ### A release bundle
 
+On an Apple Silicon Mac, [`tools/tc002/macos/build.sh`](building-on-macos.md) builds a bundle
+natively and reuses the parts that need Linux from the official release of the base version.
 In WSL, with both toolchains set; the kernel tree needs preparing once:
 
 ```

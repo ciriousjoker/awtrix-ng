@@ -83,12 +83,17 @@ These answers use the normal error body instead:
 | `wrongChip` | 400 | `POST /update` (firmware upload) | The file is not an update for this device: made for a different chip, for the other kind of PSRAM (quad or octal), a `usb-*.bin` meant for the first flash over USB, or not a firmware file at all. `message` says which. The installed firmware is not touched. |
 <!-- /only -->
 <!-- only tc002 -->
+| `invalidModel` | 422 | `PUT`, `PATCH /api/v1/wake/models/{name}` | The clock cannot run the wake word model. `message` gives the reason, for example `unsupported operator 12`. The model before it stays. |
+| `readOnlyModel` | 403 | `/api/v1/wake/models/hey_awtrix` | The built-in wake word cannot be replaced, renamed or deleted. Only `enabled` and `sensitivity` change. |
+| `tooManyModels` | 409 | `PUT`, `PATCH /api/v1/wake/models/{name}` | Eight wake word models are stored already, or four listen already and this one would too. |
+| `tooManyClients` | 503 | `GET /api/v1/wake/events`, `GET /api/v1/mic/stream` | Three clients follow the wake word events, or two stream the microphone, already. The answer has `Retry-After: 5`. |
+| `microphoneUnavailable` | 503 | `GET /api/v1/mic/stream` | The microphone controller has no stream yet. It gets one with its [update](../guides/updating.md#mcu-updates). |
 | `invalidPackage` | 400 | `POST /update` | The package is damaged, incomplete or in an unknown format. Download it again. |
 | `wrongTarget` | 400 | `POST /update` | The package is made for another device. |
 <!-- /only -->
 | `unauthorized` | 401 | every route, when login is on | Missing or wrong username or password. See [Authentication](#authentication-401). |
 | `forbidden` | 403 | routes unavailable in setup mode | Not allowed while AWTRIX is in setup mode. See [Setup mode lockdown](#provisioning-lockdown-403). |
-| `forbiddenOrigin` | 403 | `GET /api/v1/system?secrets=1`, `PUT /api/v1/system`, `POST /api/v1/restore`, `POST /update`, `POST /api/v1/device/factory-reset`<!-- only tc002 -->, `POST /api/v1/voice`, `POST /api/v1/voice/start`, the script sign-in changes and the changes of an app's [API keys](http.md#api-keys)<!-- /only --> | The request came from a web page of another site: its `Origin` header names another host, or `Sec-Fetch-Site` is neither `same-origin` nor `none`. Nothing was done. See [Requests from other web pages](http.md#cross-origin). |
+| `forbiddenOrigin` | 403 | `GET /api/v1/system?secrets=1`, `PUT /api/v1/system`, `POST /api/v1/restore`, `POST /update`, `POST /api/v1/device/factory-reset`<!-- only tc002 -->, `POST /api/v1/voice`, `POST /api/v1/voice/start`, `GET /api/v1/mic/stream`, the script sign-in changes and the changes of an app's [API keys](http.md#api-keys)<!-- /only --> | The request came from a web page of another site: its `Origin` header names another host, or `Sec-Fetch-Site` is neither `same-origin` nor `none`. Nothing was done. See [Requests from other web pages](http.md#cross-origin). |
 | `notFound` | 404 | many routes | Unknown route, or an app, sound or file with that name does not exist. |
 | `methodNotAllowed` | 405 | any known route | The path exists, but not for this method. `message` lists the allowed methods. |
 | `payloadTooLarge` | 413 | any route with a body | The body is larger than allowed for that route ([Limits](limits.md#requests)). Nothing was applied. |
@@ -110,7 +115,6 @@ These answers use the normal error body instead:
 | `storageError` | 500 | `/api/v1/icons/origins` | The icon links could not be read or saved. |
 <!-- only tc002 -->
 | `notSupported` | 501 | `POST /update` | This clock takes no update packages over the network. Update it over USB. |
-| `scanUnavailable` | 503 | `GET /api/v1/system/wifi-scan` | Wi-Fi scanning is unavailable while the setup hotspot is open. Enter the network name manually. |
 <!-- /only -->
 | `unavailable` | 503 | `GET /api/v1/apps/script/{name}`, `/api/v1/apps/{name}/config`, `PUT /api/v1/apps/script-update/{name}`, `GET /api/v1/scripts/shared`, `POST /api/v1/audio/play`<!-- only tc002 -->, `POST /api/v1/audio/clip`, `POST /api/v1/gamepad/pair`, `POST /api/v1/gamepad/remote`<!-- /only --> | This firmware has no scripting, scripting is switched off (`scriptingEnabled`; only for `PATCH` on `/config` and for `script-update`)<!-- only esp32 esp32-s3 --> or the device cannot play the sound you asked for (for a list: none of its entries)<!-- /only --><!-- only tc002 -->, the device cannot play the sound you asked for (for a list: none of its entries), Bluetooth is not running for `gamepad/pair`, or the phone port cannot be opened for `gamepad/remote` (`not available`)<!-- /only -->. `POST /api/v1/audio/stop` never answers 503. A `PUT` on the script path answers `500 internalError` instead. |
 | `serviceBusy` | 503 | script install<!-- only esp32-s3 -->, radio play<!-- /only --><!-- only tc002 -->, large bodies<!-- /only --> | AWTRIX is busy for a moment; try again shortly. This is not a full store like `insufficientStorage`. The answer has `Retry-After: 2`. Has `field: "name"` on a script install<!-- only esp32-s3 --> and `field: "station"` when a radio stream is refused for lack of memory<!-- /only -->.<!-- only tc002 --> A body over 64 KiB gets it while another large body is still arriving.<!-- /only --> |
@@ -359,7 +363,7 @@ While AWTRIX is in **setup mode**, these are the only available routes:
 |---|---|---|
 | `GET` | `/`, `/index.html` | Setup page |
 | `GET` | `/api/v1/device`, `/api/v1/capabilities`, `/api/v1/system` | Device and setup information, without secrets |
-| `GET` | `/api/v1/system/wifi-scan` | Wi-Fi scan<!-- only tc002 -->. It answers `503 scanUnavailable` while the setup hotspot is open<!-- /only --> |
+| `GET` | `/api/v1/system/wifi-scan` | Wi-Fi scan<!-- only tc002 -->. It answers with the networks the clock found right before it opened the setup hotspot<!-- /only --> |
 | `PUT` | `/api/v1/system` | Only the string fields `wifiSsid`, `wifiPass` and `hostname` |
 | `POST` | `/api/v1/device/reboot` | Restart |
 | `POST` | `/api/v1/restore` | [Backup restore](http.md#post-apiv1restore), Wi-Fi included |

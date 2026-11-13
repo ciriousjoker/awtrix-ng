@@ -651,8 +651,8 @@ The first call starts a search and answers `202`. Ask again until you get `200`.
 returned once, it is gone; the next request starts a new search.
 
 <!-- only tc002 -->
-Searching does not work while the setup hotspot is open (`503 scanUnavailable`). Type the
-network name by hand. Searching works once the clock is connected to a network.
+While the setup hotspot is open, the list holds the networks the clock found right before it
+opened the hotspot. A list older than a minute is searched again while the hotspot stays open.
 <!-- /only -->
 
 ## Persistence and resets

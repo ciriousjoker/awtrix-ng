@@ -211,6 +211,7 @@ nav:
           - Making a voice pack: developers/tc002/voice-packs.md
           - Tools overview: developers/tc002/tools.md
           - Install tools: developers/tc002/install-tools.md
+          - Building on macOS: developers/tc002/building-on-macos.md
           - Desktop installer: developers/tc002/desktop-installer.md
           - Browser image tools: developers/tc002/browser-image.md
           - Kernel modules: developers/tc002/kernel.md

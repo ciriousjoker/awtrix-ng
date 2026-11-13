@@ -3024,6 +3024,11 @@ Scans for Wi-Fi networks. The scan takes a moment, so ask again until results ar
 | `enc` | boolean | `false` for an open network |
 
 Results are delivered once: the next request starts a new scan and answers `202` again.
+<!-- only tc002 -->
+
+In setup mode the clock answers with the networks it found right before it opened the setup
+hotspot. When that list is older than a minute, it scans again while the hotspot stays open.
+<!-- /only -->
 
 **Errors:**
 
@@ -3305,7 +3310,7 @@ This route, `POST` below and [`POST /api/v1/voice/start`](#post-apiv1voicestart)
 | `error` | string | what stops the assistant now, as a code such as `tokenRejected`. It stays while the clock tries again and goes once the clock is connected. `""` when nothing does. With an app: `appMissing` (not installed or cannot answer), `appOff` (switched off on the **Apps** tab) or `appBroken` (the script has an error) |
 | `lastError` | string | why the last request failed, as a code such as `nothingUnderstood`. The assistant stays ready. `""` once the next request starts, after five minutes or when a setting other than the wake word changes |
 | `wakeWordAvailable` | boolean | the clock can hear "Hey AWTRIX". When `false`, `config.wakeWord` does nothing |
-| `wakeListening` | boolean | the clock listens for "Hey AWTRIX" right now. `false` while the wake word is off, the assistant is off, Home Assistant is not connected or the app cannot answer |
+| `wakeListening` | boolean | the clock listens for wake words right now: "Hey AWTRIX" or one of [your own](#wake-words). `false` while none is switched on |
 | `assistantApps` | array | the names of the installed apps that can be the assistant: scripts that name `voice` in their [`@needs`](../guides/scripting/sharing.md#what-your-script-asks-of-the-clock) and have an `on_assistant` method, but no modules and no headless scripts. Apps switched off on the **Apps** tab are listed too |
 | `pipelines` | array | the voice assistants of Home Assistant (its Assist pipelines) once connected. `[]` before |
 
@@ -3324,14 +3329,16 @@ Changes the voice assistant settings.
   1 to 32 letters, digits, `_` or `-`, and not `active`, `next`, `previous` or `order`. With an app, the
   clock keeps no connection to Home Assistant, and every start opens that app. An app that is not
   installed, is switched off or cannot answer starts nothing.
-* With `off`, the clock closes its connection to Home Assistant and does not listen for the wake word,
-  and nothing starts the assistant. Address, token, pipeline and device stay saved.
+* With `off`, the clock closes its connection to Home Assistant, and nothing starts the assistant.
+  Address, token, pipeline and device stay saved. A wake word that is on still reaches
+  [scripts](voice.md#on_wake).
 * With `ha` and no address or no token, the clock stays unconnected.
 * `enabled: false` sets `assistant` to `off`, `enabled: true` sets it to `ha`, whatever it was before.
   When a request has both fields, `assistant` counts.
 * `device` is a Home Assistant device ID (letters and digits, up to 64), `""` for none.
-* `wakeWord` is `true` or `false`. With `true`, saying "Hey AWTRIX" starts the assistant while it is
-  ready.
+* `wakeWord` is `true` or `false`. With `true`, the clock listens for "Hey AWTRIX", and saying it
+  starts the assistant while it is ready. It is the `enabled` of the [wake word model](#wake-words)
+  `hey_awtrix`.
 * `wakeSensitivity` is `low` (fewer false starts), `normal` (the default) or `high` (hears more easily).
   A change counts at once.
 * After you change the address, send the token again.
@@ -3489,6 +3496,163 @@ web UI asks again.
 
 ```bash
 curl -X PUT -H "Content-Type: application/json" -d '{"consent":true}' http://<awtrix-ip>/api/v1/activation
+```
+
+### Wake words {#wake-words}
+
+The clock listens for several wake words at the same time: the built-in "Hey AWTRIX" and up to
+eight of your own, of which at most four listen at once. Each one is a
+[microWakeWord](https://github.com/kahrendt/microWakeWord) model, a `.tflite` file with its
+settings. Your models stay through firmware updates. A [factory reset](#post-apiv1devicefactory-reset)
+deletes them.
+
+The clock listens whenever at least one model is switched on, whatever the
+[voice assistant](#apiv1voice) is set to. A detection of `hey_awtrix` also starts the assistant
+when one is set and ready. Every detection reaches the [`on_wake`](voice.md#on_wake) method of
+every script that has one, and the [event stream](#get-apiv1wakeevents).
+
+These routes exist while [capabilities](#get-apiv1capabilities) say `"voice": true`. Otherwise
+they answer `404`.
+
+#### The model object
+
+| Key | Type | Meaning |
+|---|---|---|
+| `name` | string | the model's name: 1 to 32 of `a-z`, `0-9` and `_` |
+| `phrase` | string | what to say, for example `Gute Nacht` |
+| `enabled` | boolean | the clock listens for it |
+| `sensitivity` | string | `low`, `normal` or `high`, as [`wakeSensitivity`](#post-apiv1voice) |
+| `probabilityCutoff` | number | the model's cutoff, above 0 and at most 1. `sensitivity` scales it |
+| `slidingWindowSize` | integer | how many model outputs the clock averages, 1 to 64 |
+| `bytes` | integer | size of the model file |
+| `arenaBytes` | integer | memory the model needs while it runs |
+| `source` | string | `bundle` for the built-in model, `data` for yours |
+| `sha256` | string | SHA-256 of the model file |
+| `loaded` | boolean | the model is in memory and listens right now |
+
+`hey_awtrix` is the built-in model. Its `enabled` and `sensitivity` are the voice settings
+`wakeWord` and `wakeSensitivity`. It cannot be replaced, renamed or deleted.
+
+### GET /api/v1/wake/models
+
+Lists every model, the built-in one first.
+
+**Response:** `200` with an array of [model objects](#the-model-object).
+
+```bash
+curl http://<awtrix-ip>/api/v1/wake/models
+# [{"name":"hey_awtrix","phrase":"Hey Awtrix","enabled":true,"sensitivity":"normal","probabilityCutoff":0.86,
+#   "slidingWindowSize":3,"bytes":47336,"arenaBytes":8864,"source":"bundle","sha256":"d5bf…","loaded":true}]
+```
+
+### GET /api/v1/wake/models/{name}
+
+Reads one model.
+
+**Response:** `200` with its [model object](#the-model-object). `404 notFound` when there is none.
+
+### PUT /api/v1/wake/models/{name}
+
+Stores a model under `{name}`, or replaces the one there. The clock loads the model and checks it
+before it changes anything. A model it cannot run is refused with the reason, and the model before
+it stays. The new model listens without a restart.
+
+**Request:** JSON:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `tflite` | string | the model file, base64. Required, at most 512 KiB once decoded |
+| `phrase` | string | 1 to 64 printable bytes. Default: the name |
+| `probabilityCutoff` | number | required for a new model |
+| `slidingWindowSize` | integer | required for a new model |
+| `enabled` | boolean | default `true` |
+| `sensitivity` | string | default `normal` |
+
+A replaced model keeps the values you leave out.
+
+**Response:** `200` with the [model object](#the-model-object).
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 400 | `invalidName`: the name breaks the rules. `validationFailed`: `field` names the wrong value |
+| 403 | `readOnlyModel`: `hey_awtrix` cannot be replaced |
+| 409 | `tooManyModels`: eight models are stored already, or four listen already and this one would too |
+| 413 | `payloadTooLarge`: the model is empty or larger than 512 KiB |
+| 422 | `invalidModel`: the clock cannot run the model. `message` says why, for example `unsupported operator 12` |
+| 507 | `insufficientStorage`: not enough free space |
+
+```bash
+curl -X PUT http://<awtrix-ip>/api/v1/wake/models/gute_nacht \
+  -H "Content-Type: application/json" \
+  -d "{\"phrase\":\"Gute Nacht\",\"probabilityCutoff\":0.9,\"slidingWindowSize\":5,\"tflite\":\"$(base64 < model.tflite | tr -d '\n')\"}"
+```
+
+### PATCH /api/v1/wake/models/{name}
+
+Changes any of `enabled`, `sensitivity`, `probabilityCutoff`, `slidingWindowSize` and `phrase`.
+Changes count at once. For `hey_awtrix`, only `enabled` and `sensitivity` change.
+
+**Response:** `200` with the [model object](#the-model-object).
+
+**Errors:** as for [`PUT`](#put-apiv1wakemodelsname), and `404 notFound` for a name without a
+model. `403 readOnlyModel` for `phrase`, `probabilityCutoff` or `slidingWindowSize` of `hey_awtrix`.
+
+```bash
+curl -X PATCH http://<awtrix-ip>/api/v1/wake/models/gute_nacht \
+  -H "Content-Type: application/json" -d '{"sensitivity":"high"}'
+```
+
+### DELETE /api/v1/wake/models/{name}
+
+Deletes a model.
+
+**Response:** `200` `{"ok":true}`. `404 notFound` when there is none, `403 readOnlyModel` for
+`hey_awtrix`.
+
+### GET /api/v1/wake/events
+
+Follows what the clock hears, as [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html):
+the response stays open and the clock writes each event when it happens.
+
+| Event | `data` | When |
+|---|---|---|
+| `detection` | `{"name":"gute_nacht","score":0.97,"at":1763000000000,"muted":false}` | a model heard its phrase. `at` is the time in milliseconds since 1970, `-1` before the clock knows the time. `muted` is `true` while the clock itself spoke, played or recorded: such a detection starts nothing and reaches no script |
+| `scores` | `{"t":123456,"scores":{"hey_awtrix":0.01,"gute_nacht":0.12}}` | about ten times a second, only with `?scores=1`. Each score is the mean the model's cutoff is compared with, 0 to 1. `t` counts the microphone's samples |
+
+Every 10 seconds without an event, the clock writes the comment line `: keepalive`. At most three
+clients follow the events at the same time. One more gets `503 tooManyClients`.
+
+```bash
+curl -N "http://<awtrix-ip>/api/v1/wake/events?scores=1"
+# event: scores
+# data: {"t":48000,"scores":{"hey_awtrix":0.004}}
+```
+
+### GET /api/v1/mic/stream
+
+Streams the microphone: the same sound the wake words hear, as raw PCM, signed 16-bit
+little-endian, mono, 16 000 samples a second, about 32 KB a second. The response stays open until
+you close it. Wake words, the voice assistant and recordings of scripts go on meanwhile.
+
+While a client streams, the clock shows a red dot in the top-right corner of the display.
+
+The response has the headers `Content-Type: application/octet-stream`, `X-Sample-Rate: 16000`,
+`X-Channels: 1` and `X-Sample-Format: s16le`.
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 403 | `forbiddenOrigin`: a web page of another site asked |
+| 503 | `tooManyClients`: two clients stream already. `microphoneUnavailable`: the microphone controller has no stream yet ([MCU update](../guides/updating.md#mcu-updates)) |
+
+A client that falls more than four seconds behind is disconnected.
+
+```bash
+curl -N http://<awtrix-ip>/api/v1/mic/stream > mic.raw
+ffplay -f s16le -ar 16000 -ac 1 mic.raw
 ```
 <!-- /only -->
 
@@ -4002,7 +4166,7 @@ Any other path answers **404** `notFound` with the message `unknown route`.
 | GET | `/api/v1/capabilities` | [what this device supports](#get-apiv1capabilities) |
 | GET | `/api/v1/system` | [device configuration](#get-apiv1system) |
 | PUT | `/api/v1/system` | [change configuration<!-- only esp32 esp32-s3 -->; pins checked<!-- /only -->](#put-apiv1system) |
-| GET | `/api/v1/system/wifi-scan` | [202 while scanning](#get-apiv1systemwifi-scan) |
+| GET | `/api/v1/system/wifi-scan` | [202 while scanning<!-- only tc002 -->; works in setup mode<!-- /only -->](#get-apiv1systemwifi-scan) |
 | GET | `/api/v1/logs` | [device log](#get-apiv1logs) |
 <!-- only tc002 -->
 | GET | `/api/v1/gamepad` | [both gamepads and their players](#get-apiv1gamepad) |
@@ -4021,6 +4185,10 @@ Any other path answers **404** `notFound` with the message `unknown route`.
 | DELETE | `/api/v1/speech/voice` | [back to the built-in voice](#delete-apiv1speechvoice) |
 | GET | `/api/v1/activation` | [the Help AWTRIX answer](#get-apiv1activation) |
 | PUT | `/api/v1/activation` | [answer Help AWTRIX](#put-apiv1activation) |
+| GET | `/api/v1/wake/models` | [every wake word model](#get-apiv1wakemodels) |
+| GET, PUT, PATCH, DELETE | `/api/v1/wake/models/{name}` | [one wake word model](#put-apiv1wakemodelsname) |
+| GET | `/api/v1/wake/events` | [detections and scores as Server-Sent Events](#get-apiv1wakeevents) |
+| GET | `/api/v1/mic/stream` | [the microphone as raw PCM](#get-apiv1micstream) |
 | GET | `/api/v1/oauth` | [scripts that sign in](#get-apiv1oauth) |
 | GET, POST, DELETE | `/api/v1/oauth/{name}` | [a script's sign-in](#get-apiv1oauthname) |
 | POST | `/api/v1/oauth/{name}/start` | [start a sign-in](#post-apiv1oauthnamestart) |

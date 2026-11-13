@@ -101,6 +101,11 @@ def ground_truth():
                              read("src/persistence/SystemConfigApply.cpp")))
     errors |= set(re.findall(r'\berror\([0-9]+,\s*"([a-zA-Z]+)"',
                              read("src/core/icons/IconOrigins.cpp")))
+    # The wake word models, their events and the microphone stream (TC002).
+    wake = "\n".join(path.read_text(encoding="utf-8")
+                     for path in sorted((Path(ROOT) / "src/platform/tc002/wake").glob("Wake*.cpp")))
+    wake += read("src/platform/tc002/voice/MicrophoneStreamApi.cpp")
+    errors |= set(re.findall(r'\b(?:error|sendError)\((?:response,\s*)?[0-9]+,\s*"([a-zA-Z]+)"', wake))
     return settings, system, device, errors
 
 

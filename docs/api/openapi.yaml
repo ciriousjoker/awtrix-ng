@@ -3618,7 +3618,11 @@ components:
                 - validationFailed      # 422
                 - scriptChanged         # 409, source changed or copy name exists
                 - gamepadsFull          # 409, gamepad slots are full
-                - scanUnavailable       # 503, Wi-Fi scan in setup mode
+                - readOnlyModel         # 403, the built-in wake word model cannot be replaced or deleted
+                - tooManyModels         # 409, eight wake word models stored, or four already listen
+                - invalidModel          # 422, the clock cannot run the wake word model
+                - tooManyClients        # 503, wake word events or microphone stream already at their client limit
+                - microphoneUnavailable # 503, the microphone controller has no stream yet
                 - notNewer              # 409, POST /update - not newer than the installed release
                 - updateBusy            # 409, POST /update - another update is running or being confirmed
                 - voiceUnavailable      # 409, POST /api/v1/voice/start - the assistant cannot start now

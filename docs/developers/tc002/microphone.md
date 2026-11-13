@@ -126,8 +126,11 @@ stop, keepalive). The protocol and the hardware measurements that qualify it are
 ## Microphone hub
 
 `MicrophoneHub` (`runtime/MicrophoneHub.h`) shares the daemon's one stream among the runtime's
-consumers: the [wake word](wake-word.md) listener, [Home Assistant Voice](ha-voice.md) and
-`VoiceCapture`, the recorder of `import voice` ([Voice module](voice-module.md)). Each
+consumers: the [wake word](wake-word.md) listener, [Home Assistant Voice](ha-voice.md),
+`VoiceCapture`, the recorder of `import voice` ([Voice module](voice-module.md)), and
+`MicrophoneStreamApi`, which streams the audio to HTTP clients
+([`GET /api/v1/mic/stream`](../../reference/http.md#get-apiv1micstream)) while one is connected
+and draws the red privacy dot in the top-right corner of the display meanwhile. Each
 consumer speaks the protocol of `contract/MicrophoneStream.h` as it would to the daemon, under its
 own epochs. Its sample positions are its own and start at 0 with its stream. Like the daemon, the
 hub never answers inside a control call. The answer arrives on its next `receive()` or `tick()`.

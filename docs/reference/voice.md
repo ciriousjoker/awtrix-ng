@@ -23,6 +23,25 @@ Every call, option and status value of [`import voice`](../guides/voice-scripts.
 A callback that is not a function, `opts` that is not a map or anything but a clip for `voice.play()`
 or `voice.send()` raises `value_error`. To send text, use [`http`](../guides/scripting/network.md#http-calls).
 
+## on_wake
+
+An app that has a method `on_wake(name, score)` hears every wake word the clock detects, whether the
+app is shown or not and whatever the voice assistant is set to. `name` is the model's name, for
+example `'hey_awtrix'` or `'gute_nacht'`, and `score` a real between 0 and 1. Detections while the
+clock itself speaks, plays or records reach no app. Your own wake words are stored through the
+[HTTP API](http.md#wake-words).
+
+```berry
+class Lights
+  def on_wake(name, score)
+    if name == 'gute_nacht' mqtt.publish('home/lights', 'off') end
+  end
+end
+return Lights()
+```
+
+`import wake` gives `wake.models()`, the names of the models the clock listens for.
+
 ## A clip
 
 | Member | Meaning |

@@ -29,7 +29,8 @@ or the browser installer, as the [TC002 guide](../../getting-started/tc002.md) d
   the pinned assets as described in [Browser image tools](browser-image.md#rebuilding).
 - **WSL or Linux for release builds.** `build_bundle.sh` and `package` run on Linux. On
   Windows, `package` runs itself in WSL (distro `Ubuntu`, or the one named in
-  `AWTRIX_WSL_DISTRO`).
+  `AWTRIX_WSL_DISTRO`). On an Apple Silicon Mac, `package` runs as it is, and
+  [`tools/tc002/macos/build.sh`](building-on-macos.md) builds the bundle.
 - **Two cross toolchains**, set in the environment: `TC002_MUSL_PREFIX` (static musl, for the
   programs) and `TC002_GLIBC_PREFIX` (ARM GNU 9.2, for the loader and kernel modules).
   [`tools/tc002/toolchain/env.sh`](https://github.com/Blueforcer/awtrix-ng/blob/main/tools/tc002/toolchain/env.sh)
