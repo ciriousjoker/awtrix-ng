@@ -117,16 +117,28 @@ async function testOfflineSkipsTheCheck() {
   ctx.window.close();
 }
 
+async function testForkVersionsSort(){
+  for(const [tag,running,newer] of [['v1.1.1-sc.1','1.1.1',true],['v1.1.1-sc.2','1.1.1-sc.1',true],
+    ['v1.1.1-sc.10','1.1.1-sc.9',true],['v1.1.1-sc.1','1.1.1-sc.1',false],['v1.1.2','1.1.1-sc.9',true],
+    ['v1.1.1','1.1.1-sc.1',false],['v1.1.1-sc.3','1.1.2',false]]){
+    const {window}=await openSystem({latest:release(tag),device:{version:running}});
+    const offered=install(window).textContent==='Download & install';
+    assert(offered===newer,`${tag} over ${running} is ${newer?'':'not '}offered`);
+    window.close();
+  }
+}
+
 async function firmwareCase(change={},xhrStatus=200){
   const imageName=change.tc002?'awtrix-ng-tc002.awup':'firmware-awtrix-ng.bin';
-  const latest=release('v1.1.2');
-  if(change.tc002)latest.assets.push({name:imageName,browser_download_url:'https://github.com/Blueforcer/awtrix-ng/releases/download/v1.1.2/'+imageName});
+  const tag=change.tag||'v1.1.2';
+  const latest=release(tag);
+  if(change.tc002)latest.assets.push({name:imageName,browser_download_url:'https://github.com/ciriousjoker/awtrix-ng/releases/download/'+tag+'/'+imageName});
   const ctx=await openSystem({latest,device:{updateImage:imageName}});
   const bytes=new Uint8Array(512);bytes[0]=0xe9;bytes[100]=42;
   if(change.tc002)bytes.set(Buffer.from(change.magic||'AWUPD003'));
   const image=ctx.store.device.updateImage;
   const asset={size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
-  const manifest={version:'v1.1.2',assets:{[image]:asset}};
+  const manifest={version:tag,assets:{[image]:asset}};
   if(change.version)manifest.version=change.version;
   if(change.hash)asset.sha256='0'.repeat(64);
   if(change.size)asset.size=change.size;
@@ -180,6 +192,14 @@ async function testTc002FirmwareInstall(){
   }
 }
 
+async function testForkReleaseInstalls(){
+  const ctx=await firmwareCase({tc002:true,tag:'v1.1.1-sc.2'});
+  assert(ctx.fetched[0].url.startsWith('https://ciriousjoker.github.io/awtrix-ng/firmware/ota/'),'the fork publishes its own OTA index');
+  assert(ctx.fetched[1].url.endsWith('/v1.1.1-sc.2/awtrix-ng-tc002.awup'),'a fork release downloads from its own tag');
+  assert(ctx.uploads.length===1,'and installs');
+  ctx.window.close();
+}
+
 async function testBadFirmwareNeverUploads(){
   for(const change of [{version:'v1.1.1'},{hash:true},{size:511},{truncated:true},{network:true}]){
     const ctx=await firmwareCase(change);
@@ -211,6 +231,8 @@ async function main() {
   await testNoAutomaticCheckAfterNavigation();
   await testBrowserFirmwareInstall();
   await testTc002FirmwareInstall();
+  await testForkReleaseInstalls();
+  await testForkVersionsSort();
   await testBadFirmwareNeverUploads();
   await testRejectedFirmwareAllowsRetry();
   await testNewerReleaseOffersTheMatchingFile();

@@ -13,15 +13,22 @@ function progressRow(){
     hide(){row.style.display='none';},
     set(p){fill.style.width=(p*100).toFixed(1)+'%';}};
 }
-const RELEASES_API='https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest';
-const OTA_BASE='https://blueforcer.github.io/awtrix-ng/firmware/ota/';
+// Smart Clock fork: its releases and the OTA index its release workflow publishes to GitHub Pages.
+const UPDATE_REPO=['ciriousjoker','awtrix-ng'];
+const RELEASES_API='https://api.github.com/repos/'+UPDATE_REPO.join('/')+'/releases/latest';
+const OTA_BASE='https://'+UPDATE_REPO[0]+'.github.io/'+UPDATE_REPO[1]+'/firmware/ota/';
 let firmwareBusy=false;
 const UPD_KEY='awtrixUpdate';
 const UPD_TTL_MS=6*3600*1000;
-const verParts=v=>String(v||'').replace(/^v/,'').split('.').map(n=>parseInt(n,10)||0);
+// X.Y.Z, or X.Y.Z-sc.N of the fork: N counts its releases on top of upstream X.Y.Z, so it sorts
+// after X.Y.Z and before the next upstream version.
+const verParts=v=>{
+  const m=/^v?(\d+)\.(\d+)\.(\d+)(?:-sc\.(\d+))?/.exec(String(v||''));
+  return m?m.slice(1).map(n=>parseInt(n||'0',10)):[0,0,0,0];
+};
 function verNewer(a,b){
   const x=verParts(a),y=verParts(b);
-  for(let i=0;i<3;i++)if((x[i]||0)!==(y[i]||0))return(x[i]||0)>(y[i]||0);
+  for(let i=0;i<4;i++)if(x[i]!==y[i])return x[i]>y[i];
   return false;
 }
 function updCached(){
@@ -53,7 +60,7 @@ async function downloadFirmware(release,onProgress){
   if(!response.ok)throw new Error(t('updnotready'));
   const manifest=await response.json();
   const asset=manifest.assets&&manifest.assets[image];
-  if(manifest.version!=='v'+release.version||!/^v\d+\.\d+\.\d+$/.test(manifest.version)||!asset)throw new Error(t('updnotready'));
+  if(manifest.version!=='v'+release.version||!/^v\d+\.\d+\.\d+(-sc\.\d+)?$/.test(manifest.version)||!asset)throw new Error(t('updnotready'));
   if(!Number.isSafeInteger(asset.size)||asset.size<256||asset.size>(awup?8:16)*1024*1024||!/^[a-f0-9]{64}$/.test(asset.sha256))throw new Error(t('updbadfile'));
   const r=await fetch(OTA_BASE+manifest.version+'/'+image,options);
   if(!r.ok)throw new Error('HTTP '+r.status);
