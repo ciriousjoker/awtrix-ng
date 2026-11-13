@@ -248,6 +248,7 @@ void WakeApi::detection(const WakeHeard& heard, int64_t atMs) {
   writer.beginObject()
       .member("name", heard.name)
       .member("score", static_cast<double>(heard.score), 3)
+      .member("t", static_cast<unsigned long long>(heard.sample))
       .member("at", static_cast<long long>(atMs))
       .member("muted", heard.muted)
       .endObject();

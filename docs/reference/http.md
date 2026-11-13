@@ -266,6 +266,7 @@ These keys appear only when the hardware is there:
 | `batteryVoltage` | number | V, 2 decimals | the battery has reported its charge. The voltage of the battery |
 | `lowBattery` | boolean | - | the battery has reported its charge. `true` while `batteryPercent` is below `lowBatteryThreshold`. Always `false` when the threshold is `0` |
 | `usbPower` | boolean | - | the clock has reported its power supply. `true` while it is on USB power and charges |
+| `mcu` | object | - | the microphone controller has answered. `version`: its firmware, for example `V1.0.17`. `installed`: the build of the AWTRIX extension on it, `null` without one. `target`: the build this firmware brings, `null` for none. `update`: what its [update](../guides/updating.md#mcu-updates) does now, as text. `updating`: `true` while an update is prepared or written |
 <!-- /only -->
 
 <!-- only esp32 esp32-s3 -->
@@ -3618,8 +3619,8 @@ the response stays open and the clock writes each event when it happens.
 
 | Event | `data` | When |
 |---|---|---|
-| `detection` | `{"name":"gute_nacht","score":0.97,"at":1763000000000,"muted":false}` | a model heard its phrase. `at` is the time in milliseconds since 1970, `-1` before the clock knows the time. `muted` is `true` while the clock itself spoke, played or recorded: such a detection starts nothing and reaches no script |
-| `scores` | `{"t":123456,"scores":{"hey_awtrix":0.01,"gute_nacht":0.12}}` | about ten times a second, only with `?scores=1`. Each score is the mean the model's cutoff is compared with, 0 to 1. `t` counts the microphone's samples |
+| `detection` | `{"name":"gute_nacht","score":0.97,"t":123120,"at":1763000000000,"muted":false}` | a model heard its phrase. `t` is the position in the microphone's samples where it was heard, on the same count as `scores`. `at` is the time in milliseconds since 1970, `-1` before the clock knows the time. `muted` is `true` while the clock itself spoke, played or recorded: such a detection starts nothing and reaches no script |
+| `scores` | `{"t":123456,"scores":{"hey_awtrix":0.01,"gute_nacht":0.12}}` | about ten times a second, only with `?scores=1`. Each score is the mean the model's cutoff is compared with, 0 to 1. `t` counts the microphone's samples since the clock started listening: 16 000 a second. It starts again at 0 when listening starts again |
 
 Every 10 seconds without an event, the clock writes the comment line `: keepalive`. At most three
 clients follow the events at the same time. One more gets `503 tooManyClients`.
