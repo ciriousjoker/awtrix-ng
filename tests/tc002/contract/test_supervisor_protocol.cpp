@@ -65,6 +65,17 @@ int main() {
         message.power.batteryPercent == 76 && message.power.batteryMillivolts == 4120, "power round trip");
   power.usbKnown = false;
   check(decodeSupervisorMessage(encodePower(power), message) && !message.power.usbKnown, "unknown USB supply round trip");
+  check(message.power.mcuVersion.empty() && message.power.mcuInstalled == -1 && message.power.mcuTarget == -1,
+        "no MCU state before the MCU answered");
+  power.mcuVersion = "V1.0.17";
+  power.mcuInstalled = 13;
+  power.mcuTarget = 13;
+  power.mcuStatus = "current";
+  power.mcuBusy = true;
+  check(decodeSupervisorMessage(encodePower(power), message) && message.power.mcuVersion == "V1.0.17" &&
+            message.power.mcuInstalled == 13 && message.power.mcuTarget == 13 &&
+            message.power.mcuStatus == "current" && message.power.mcuBusy,
+        "MCU state round trip");
   check(decodeSupervisorMessage("{\"v\":2,\"type\":\"power\",\"usbPower\":false,\"batteryPercent\":5,"
                                 "\"batteryMillivolts\":1}", message) && message.power.usbKnown,
         "a report without usbKnown states the supply");

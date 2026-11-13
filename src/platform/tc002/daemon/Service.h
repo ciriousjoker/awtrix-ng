@@ -62,7 +62,7 @@ class DeviceState {
   static void notify(const std::vector<Listener>& listeners) {
     for (const auto& listener : listeners) listener();
   }
-  tc002::PowerStatus power_{false, -1, -1, false};
+  tc002::PowerStatus power_{false, -1, -1, false, {}, {}, -1, -1, false};
   tc002::NetworkStatus network_;
   tc002::TimeStatus time_;
   std::vector<Listener> powerListeners_, networkListeners_, timeListeners_, replacedListeners_;

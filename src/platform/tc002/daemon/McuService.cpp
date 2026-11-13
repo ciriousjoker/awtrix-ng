@@ -543,10 +543,19 @@ void McuService::publish(int64_t nowMs) {
     power.batteryPercent = gauge_.percent();
     power.batteryMillivolts = batteryMillivolts(batteryWord_);
   }
+  power.mcuVersion = version_;
+  power.mcuInstalled = identitySeen_ ? static_cast<int>(identity_.version) : -1;
+  if (!options_.firmwareDirectory.empty()) {
+    power.mcuTarget = static_cast<int>(firmware_.target().version);
+    power.mcuStatus = prepareStatus_.empty() ? firmware_.status() : prepareStatus_;
+    power.mcuBusy = firmwareBusy();
+  }
   const auto& current = state_.power();
   if (current.usbKnown == power.usbKnown && current.usbPower == power.usbPower &&
       current.batteryPercent == power.batteryPercent &&
-      current.batteryMillivolts == power.batteryMillivolts)
+      current.batteryMillivolts == power.batteryMillivolts && current.mcuVersion == power.mcuVersion &&
+      current.mcuInstalled == power.mcuInstalled && current.mcuTarget == power.mcuTarget &&
+      current.mcuStatus == power.mcuStatus && current.mcuBusy == power.mcuBusy)
     return;
   state_.setPower(power);
 }

@@ -227,6 +227,13 @@ std::string encodePower(const PowerStatus& power) {
       .member("usbKnown", power.usbKnown)
       .member("batteryPercent", power.batteryPercent)
       .member("batteryMillivolts", power.batteryMillivolts);
+  json.key("mcu").beginObject()
+      .member("version", power.mcuVersion)
+      .member("installed", power.mcuInstalled)
+      .member("target", power.mcuTarget)
+      .member("status", power.mcuStatus)
+      .member("busy", power.mcuBusy)
+      .endObject();
   return finish(json, out);
 }
 
@@ -427,6 +434,14 @@ bool decodeSupervisorMessage(std::string_view datagram, SupervisorMessage& out) 
       ok = field("usbPower").asBool(p.usbPower) && (!api::present(known) || known.asBool(p.usbKnown)) &&
            readInt(field("batteryPercent"), -1, 100, p.batteryPercent) &&
            readInt(field("batteryMillivolts"), -1, 10000, p.batteryMillivolts);
+      // Optional: a supervisor before 1.2.3-sc.2 sends no MCU state.
+      const api::JsonReader mcu = field("mcu");
+      if (ok && api::present(mcu))
+        ok = readString(api::memberValue(mcu, "version"), p.mcuVersion) &&
+             readInt(api::memberValue(mcu, "installed"), -1, 1 << 30, p.mcuInstalled) &&
+             readInt(api::memberValue(mcu, "target"), -1, 1 << 30, p.mcuTarget) &&
+             readString(api::memberValue(mcu, "status"), p.mcuStatus) &&
+             api::memberValue(mcu, "busy").asBool(p.mcuBusy);
       break;
     }
     case MessageType::Network: {

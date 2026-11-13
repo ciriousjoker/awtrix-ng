@@ -27,6 +27,12 @@ struct PowerStatus {
   int batteryMillivolts = -1;
   // false while the supervisor has no fresh USB report; usbPower then says nothing.
   bool usbKnown = true;
+  // The MCU firmware as the supervisor sees it: the vendor version ("" before the MCU answered),
+  // the AWTRIX extension build installed and the one the release carries (-1: none), the update
+  // status and whether an update is being prepared or transferred.
+  std::string mcuVersion, mcuStatus;
+  int mcuInstalled = -1, mcuTarget = -1;
+  bool mcuBusy = false;
 };
 
 enum class WifiLink : uint8_t { Unconfigured, Connecting, Connected, Disconnected, Failed, AccessPoint };

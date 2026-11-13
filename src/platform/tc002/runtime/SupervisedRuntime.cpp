@@ -141,6 +141,11 @@ void SupervisedRuntime::apply(const tc002::SupervisorMessage& message) {
 
 void SupervisedRuntime::applyPower(const tc002::PowerStatus& power) {
   RuntimeState& rt = engine_.state().runtime();
+  power_.mcuVersion = power.mcuVersion;
+  power_.mcuInstalled = power.mcuInstalled;
+  power_.mcuTarget = power.mcuTarget;
+  power_.mcuStatus = power.mcuStatus;
+  power_.mcuBusy = power.mcuBusy;
   if (power.usbKnown) {
     const bool supplyChanged = !powerKnown_ || power.usbPower != power_.usbPower;
     if (supplyChanged || !usbKnown_) logf("power: USB supply %s", power.usbPower ? "connected" : "absent");
@@ -200,6 +205,14 @@ void SupervisedRuntime::addFacts(DeviceFacts& facts) const {
 
 void SupervisedRuntime::writeMembers(api::JsonWriter& json) const {
   if (powerKnown_) json.member("usbPower", power_.usbPower);
+  if (power_.mcuVersion.empty()) return;
+  api::JsonWriter& mcu = json.key("mcu").beginObject();
+  mcu.member("version", power_.mcuVersion);
+  if (power_.mcuInstalled >= 0) mcu.member("installed", power_.mcuInstalled);
+  else mcu.memberNull("installed");
+  if (power_.mcuTarget >= 0) mcu.member("target", power_.mcuTarget);
+  else mcu.memberNull("target");
+  mcu.member("update", power_.mcuStatus).member("updating", power_.mcuBusy).endObject();
 }
 
 // In setup mode the supervisor answers with what it found before it opened the setup hotspot.
